@@ -1,0 +1,20 @@
+export const APP_CONFIG = {
+  name: 'Enterprise HRMS',
+  companyName: 'Acme Workforce Systems',
+  version: '1.0.0',
+  sessionExpiryMinutes: 60,
+  appLockAfterMs: 5 * 60 * 1000,
+  tenantResolverUrl: 'http://tenant-endpoints-api.frevo.co.in/api/v1/tenants/resolve',
+  apiBaseUrl: 'http://api-hrms-uat.frevo.co.in',
+  apiEnabled: true,
+  faceRegistrationEndpoint: '/api/ess/face/register',
+  faceRegistrationUploadEnabled: true,
+  faceApiBaseUrl: '',
+  faceApiEnabled: false,
+  faceApiToken: '',
+  faceVerifyEndpoint: '/v1/faces/verify',
+  faceApiImageKind: 'base64_png',
+  allowSelfieAuditAttendanceFallback: false,
+};
+
+export const TOUCH_TARGET = 48;

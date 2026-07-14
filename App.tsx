@@ -1,45 +1,37 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React from 'react';
+import { Provider } from 'react-redux';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PaperProvider } from 'react-native-paper';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AppNavigator } from './src/navigation/AppNavigator';
+import { ErrorBoundary } from './src/components/feedback/ErrorBoundary';
+import { store } from './src/store';
+import { useAppSelector } from './src/store/hooks';
+import { createPaperTheme } from './src/theme/paperTheme';
+import { styles } from './src/theme/globalStyles';
 
-import { NewAppScreen } from '@react-native/new-app-screen';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
-import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
-
-function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+const AppContent = () => {
+  const darkMode = useAppSelector(state => state.preferences.darkMode);
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent />
-    </SafeAreaProvider>
+    <PaperProvider theme={createPaperTheme(darkMode)}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <AppNavigator />
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </PaperProvider>
   );
-}
+};
 
-function AppContent() {
-  const safeAreaInsets = useSafeAreaInsets();
-
+function App(): React.JSX.Element {
   return (
-    <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
-      />
-    </View>
+    <GestureHandlerRootView style={styles.flex}>
+      <Provider store={store}>
+        <AppContent />
+      </Provider>
+    </GestureHandlerRootView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-});
 
 export default App;

@@ -1,4 +1,31 @@
 {
   "name": "EnterpriseHRMS",
-  "displayName": "EnterpriseHRMS"
+  "displayName": "Enterprise HRMS",
+  "expo": {
+    "name": "Enterprise HRMS",
+    "slug": "enterprise-hrms",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": [
+      "android"
+    ],
+    "android": {
+      "package": "com.enterprisehrms",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "422df96b-faba-4f24-8483-e07b68de654c"
+      }
+    }
+  }
 }

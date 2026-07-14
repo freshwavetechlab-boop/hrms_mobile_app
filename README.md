@@ -1,97 +1,87 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Enterprise HRMS
 
-# Getting Started
+Production-ready React Native CLI + TypeScript HRMS application for Android-first enterprise deployment.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
-
-## Step 1: Start Metro
-
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
+## Setup
 
 ```sh
-# Using npm
+npm install
 npm start
-
-# OR using Yarn
-yarn start
-```
-
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+For iOS development:
 
 ```sh
+cd ios
 bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
 bundle exec pod install
+cd ..
+npm run ios
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+## Environment
+
+API configuration lives in `src/constants/app.ts`.
+
+- `apiBaseUrl`: backend base URL.
+- `sessionExpiryMinutes`: current access-token lifetime.
+- `appLockAfterMs`: configurable background lock threshold. Default is 5 minutes.
+- `officeLocation`: latitude, longitude, and geofence radius.
+
+Do not commit secrets. Replace demo API URLs with environment-specific config before release.
+
+## Folder Structure
+
+- `src/components`: reusable cards, buttons, inputs, state, and layout primitives.
+- `src/navigation`: root stack and bottom tab navigation.
+- `src/screens`: auth, dashboard, attendance, profile, requests, settings, and static module UI.
+- `src/services`: API client, biometrics, permissions, location, network, session storage, and feature services.
+- `src/repositories`: feature orchestration and backend/local persistence boundaries.
+- `src/store`: Redux Toolkit slices and typed hooks.
+- `src/database`: SQLite attendance queue.
+- `src/localization`: translation dictionaries and locale switching entry point.
+- `src/theme`: colors, spacing, typography, Paper theme, and global styles.
+- `src/utils`, `src/constants`, `src/types`, `src/validators`: shared enterprise support code.
+
+## Implemented Phase 1 Capabilities
+
+- Authentication with secure MMKV session storage.
+- Face login with live front-camera selfie capture and face-verification API placeholder.
+- Mandatory first-login face registration gate. Dashboard and attendance remain blocked until the employee registers a live selfie.
+- Future-ready refresh-token session model.
+- Automatic session restore and expiry redirect.
+- Biometric login and app lock with device credential fallback.
+- Mock location detection for login and attendance. Android mock-provider locations, including Fly GPS style spoofing, are blocked.
+- Continuous mock-location session guard. If a logged-in user opens/enables Fly GPS later, the app clears the session and blocks access.
+- Dashboard with employee, attendance, announcements, holidays, and metrics.
+- Attendance flow with front-camera live selfie capture, registered-face backend verification placeholder, OS biometric authentication, GPS lookup, mock-location block, backend/multi-office geofence fallback, attendance API placeholder, and local persistence.
+- Offline-first SQLite attendance queue.
+- Network monitoring with automatic pending attendance sync on reconnect.
+- Reusable loading, empty, error, retry, and banner UI patterns.
+- Internationalization-ready strings with English default.
+- Static enterprise modules with dummy data and extension-ready screens.
+- Working Leave module with Casual Leave, Loss of Pay, and Maternity request submission, balance checks, and local request history.
+
+## Backend Integration Guide
+
+Replace placeholder implementations in these files:
+
+- `src/services/faceVerificationService.ts`: connect `POST /api/attendance/verify-face`.
+- `src/services/faceEnrollmentService.ts`: connect face-registration status and enrollment endpoints.
+- `src/services/geofenceService.ts`: connect active office geofence endpoint.
+- `src/services/attendanceService.ts`: connect `POST /api/attendance/mark`.
+- `src/repositories/authRepository.ts`: replace demo login with auth API and refresh-token handling.
+- `src/services/sessionStorage.ts`: move the encryption key to Android Keystore or equivalent native secret management.
+
+Attendance payloads already include employee ID, timestamp, coordinates, device ID, attendance type, selfie reference, network type, battery percentage, app version, sync status, and audit metadata.
+
+## Build
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+npm run lint
+npm test
+npm run android -- --mode=release
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Before production release, configure signing keys, backend URLs, certificate pinning, SSL pinning, analytics, crash reporting, and app distribution.

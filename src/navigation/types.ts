@@ -1,0 +1,19 @@
+import { AttendanceType } from '../types/domain';
+
+export type RootStackParamList = {
+  Splash: undefined;
+  ClientCode: undefined;
+  Login: undefined;
+  FaceEnrollment: undefined;
+  AttendanceCapture: { attendanceType: AttendanceType };
+  AppLock: undefined;
+  MainTabs: undefined;
+};
+
+export type MainTabParamList = {
+  Home: undefined;
+  Attendance: undefined;
+  Requests: undefined;
+  Profile: undefined;
+  More: undefined;
+};
