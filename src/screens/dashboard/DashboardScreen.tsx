@@ -105,6 +105,12 @@ const DashboardScreen = () => {
     navigation.navigate('Requests');
   };
 
+  const onPayslips = () => {
+    const tabNavigation = navigation.getParent();
+    const parentNavigation = tabNavigation?.getParent?.() ?? navigation;
+    parentNavigation.navigate('Payslips');
+  };
+
   return (
     <Screen includeTopInset={false}>
       <Card>
@@ -155,6 +161,13 @@ const DashboardScreen = () => {
           subtitle={primaryLeave ? `${primaryLeave.leaveType}: ${primaryLeave.balance} days` : t('leaveBalance')}
           tone="secondary"
           onPress={onApplyLeave}
+        />
+        <ActionTile
+          Icon={FileText}
+          title={t('payslips')}
+          subtitle={t('payAndTax')}
+          tone="primary"
+          onPress={onPayslips}
         />
       </View>
       <SectionHeader title={t('holidays')} />

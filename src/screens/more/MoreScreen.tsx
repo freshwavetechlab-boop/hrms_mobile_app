@@ -1,6 +1,8 @@
 import React from 'react';
-import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
-import { LogOut, Shield } from 'lucide-react-native';
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ChevronRight, FileText, LogOut, Shield } from 'lucide-react-native';
 import { Card } from '../../components/layout/Card';
 import { IconBadge } from '../../components/layout/IconBadge';
 import { Screen } from '../../components/layout/Screen';
@@ -14,6 +16,7 @@ import { AppColors } from '../../theme/colors';
 import { useAppColors, useThemedStyles } from '../../theme/useAppTheme';
 import { spacing } from '../../theme/spacing';
 import { typography } from '../../theme/typography';
+import { RootStackParamList } from '../../navigation/types';
 
 const MoreScreen = () => {
   const dispatch = useAppDispatch();
@@ -21,6 +24,7 @@ const MoreScreen = () => {
   const { t } = useTranslation();
   const colors = useAppColors();
   const styles = useThemedStyles(createStyles);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const logoutIcon = () => <LogOut color={colors.primary} size={18} />;
 
   const onLogout = () => {
@@ -41,6 +45,17 @@ const MoreScreen = () => {
     <Screen includeTopInset={false}>
       <SectionHeader title={t('settings')} />
       <Card>
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Payslips')} style={styles.settingRow}>
+          <View style={styles.settingLabel}>
+            <IconBadge Icon={FileText} tone="primary" size={16} />
+            <View>
+              <Text style={styles.item}>{t('payslips')}</Text>
+              <Text style={styles.caption}>{t('payAndTax')}</Text>
+            </View>
+          </View>
+          <ChevronRight color={colors.textMuted} size={20} />
+        </Pressable>
+        <View style={styles.divider} />
         <View style={styles.settingRow}>
           <View style={styles.settingLabel}>
             <IconBadge Icon={Shield} tone="secondary" size={16} />
@@ -83,6 +98,14 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.md,
+  },
+  caption: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
+  divider: {
+    backgroundColor: colors.border,
+    height: StyleSheet.hairlineWidth,
   },
 });
 

@@ -14,6 +14,8 @@ import {
   LeaveBalance,
   LeaveStatus,
   LeaveType,
+  Payslip,
+  PayslipDocument,
 } from '../types/domain';
 import { createId } from '../utils/id';
 import { apiClient } from './apiClient';
@@ -366,6 +368,48 @@ const attendanceErrorCode = (payload: ApiObject) => {
   }
   if (status === 'EmployeeOrClientInactive') return 'ATTENDANCE_EMPLOYEE_INACTIVE';
   return getString(payload, ['message', 'error'], 'ATTENDANCE_API_REJECTED');
+};
+
+const mapPayslip = (payload: unknown): Payslip | undefined => {
+  if (!isObject(payload)) {
+    return undefined;
+  }
+  const payRunId = getNumber(payload, ['payRunId', 'id']);
+  const payPeriod = getString(payload, ['payPeriod', 'month']);
+  if (!payRunId || !payPeriod) {
+    return undefined;
+  }
+  return {
+    payRunId,
+    payPeriod,
+    payDate: getString(payload, ['payDate']),
+    runStatus: getString(payload, ['runStatus', 'status']),
+    grossPay: getNumber(payload, ['grossPay']),
+    statutoryDeductions: getNumber(payload, ['statutoryDeductions']),
+    oneTimeDeductions: getNumber(payload, ['oneTimeDeductions']),
+    netPay: getNumber(payload, ['netPay']),
+    paymentStatus: getString(payload, ['paymentStatus'], 'Pending'),
+    paymentDate: getString(payload, ['paymentDate']) || undefined,
+  };
+};
+
+const mapPayslipDocument = (payload: unknown): PayslipDocument => {
+  if (!isObject(payload)) {
+    throw new Error('PAYSLIP_DOCUMENT_INVALID');
+  }
+  const payRunId = getNumber(payload, ['payRunId']);
+  const payPeriod = getString(payload, ['payPeriod']);
+  const html = getString(payload, ['html']);
+  if (!payRunId || !payPeriod || !html) {
+    throw new Error('PAYSLIP_DOCUMENT_INVALID');
+  }
+  return {
+    payRunId,
+    payPeriod,
+    employeeCode: getString(payload, ['employeeCode']),
+    fileName: getString(payload, ['fileName'], `payslip-${payPeriod}.html`),
+    html,
+  };
 };
 
 const assertAttendanceAccepted = (
@@ -833,5 +877,20 @@ export const essApiService = {
         return name && startDate ? { name, startDate, endDate } : undefined;
       })
       .filter((item): item is Holiday => Boolean(item));
+  },
+  async getPayslips(): Promise<Payslip[]> {
+    assertApiConfigured();
+    const payload = unwrap(await apiClient.get('/api/ess/pay/payslips'));
+    return toArray(payload)
+      .map(mapPayslip)
+      .filter((item): item is Payslip => Boolean(item))
+      .sort((left, right) => right.payPeriod.localeCompare(left.payPeriod));
+  },
+  async getPayslipDocument(payRunId: number): Promise<PayslipDocument> {
+    assertApiConfigured();
+    if (!Number.isInteger(payRunId) || payRunId <= 0) {
+      throw new Error('PAYSLIP_DOCUMENT_INVALID');
+    }
+    return mapPayslipDocument(unwrap(await apiClient.get(`/api/ess/pay/payslips/${payRunId}`)));
   },
 };

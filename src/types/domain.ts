@@ -222,6 +222,27 @@ export type AttendancePeriodResponse = {
   records: AttendanceRecord[];
 };
 
+export type Payslip = {
+  payRunId: number;
+  payPeriod: string;
+  payDate: string;
+  runStatus: string;
+  grossPay: number;
+  statutoryDeductions: number;
+  oneTimeDeductions: number;
+  netPay: number;
+  paymentStatus: string;
+  paymentDate?: string;
+};
+
+export type PayslipDocument = {
+  payRunId: number;
+  payPeriod: string;
+  employeeCode: string;
+  fileName: string;
+  html: string;
+};
+
 export type NetworkState = {
   isConnected: boolean;
   isInternetReachable: boolean;

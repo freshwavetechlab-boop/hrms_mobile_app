@@ -7,6 +7,7 @@ export type RootStackParamList = {
   ChangePassword: undefined;
   FaceEnrollment: undefined;
   AttendanceCapture: { attendanceType: AttendanceType };
+  Payslips: undefined;
   AppLock: undefined;
   MainTabs: undefined;
 };

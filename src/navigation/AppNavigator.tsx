@@ -22,6 +22,7 @@ const ChangePasswordScreen = lazy(() => import('../screens/auth/ChangePasswordSc
 const FaceEnrollmentScreen = lazy(() => import('../screens/auth/FaceEnrollmentScreen'));
 const AppLockScreen = lazy(() => import('../screens/auth/AppLockScreen'));
 const AttendanceCaptureScreen = lazy(() => import('../screens/attendance/AttendanceCaptureScreen'));
+const PayslipsScreen = lazy(() => import('../screens/pay/PayslipsScreen'));
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -103,6 +104,7 @@ export const AppNavigator = () => {
             <>
               <Stack.Screen name="MainTabs" component={MainTabs} />
               <Stack.Screen name="AttendanceCapture" component={AttendanceCaptureScreen} />
+              <Stack.Screen name="Payslips" component={PayslipsScreen} />
               <Stack.Screen name="FaceEnrollment" component={FaceEnrollmentScreen} />
             </>
           )}
