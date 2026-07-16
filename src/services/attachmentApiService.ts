@@ -13,22 +13,41 @@ type UploadMetadata = {
   expiryDate: string;
 };
 
+const safeServerText = (value: unknown) => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const message = value.trim();
+  if (
+    !message ||
+    message.length > 500 ||
+    /\bSystem\.[A-Za-z]/.test(message) ||
+    /\bat\s+Payroll\.API\./.test(message) ||
+    /\\[^ \r\n]+\.cs:line\s+\d+/i.test(message)
+  ) {
+    return null;
+  }
+  return message;
+};
+
 const serverMessage = (error: unknown, fallback: string) => {
   if (!axios.isAxiosError(error)) {
-    return error instanceof Error ? error.message : fallback;
+    return safeServerText(error instanceof Error ? error.message : null) ?? fallback;
   }
   if (!error.response) {
     return 'Connect to the internet and try again.';
   }
   const data = error.response.data;
-  if (typeof data === 'string' && data.trim()) {
-    return data;
+  const textMessage = safeServerText(data);
+  if (textMessage) {
+    return textMessage;
   }
   if (typeof data === 'object' && data !== null) {
     const source = data as Record<string, unknown>;
     for (const key of ['error', 'message', 'detail']) {
-      if (typeof source[key] === 'string' && source[key].trim()) {
-        return source[key];
+      const candidate = safeServerText(source[key]);
+      if (candidate) {
+        return candidate;
       }
     }
   }
@@ -81,9 +100,7 @@ export const attachmentApiService = {
     form.append('fieldConfigurationId', String(configurationId));
     form.append('entityType', 'EMPLOYEE');
     form.append('entityId', String(employeeId));
-    if (metadata.documentNumber.trim()) {
-      form.append('documentNumber', metadata.documentNumber.trim());
-    }
+    form.append('documentNumber', metadata.documentNumber.trim());
     if (metadata.issueDate) {
       form.append('issueDate', metadata.issueDate);
     }

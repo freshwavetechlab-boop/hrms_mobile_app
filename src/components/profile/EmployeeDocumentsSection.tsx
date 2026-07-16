@@ -15,7 +15,6 @@ import {
   types,
 } from '@react-native-documents/picker';
 import { format } from 'date-fns/format';
-import { CalendarDays, FileUp, RefreshCw } from 'lucide-react-native';
 import { ActivityIndicator, Button, ProgressBar } from 'react-native-paper';
 import {
   AttachmentFieldConfiguration,
@@ -353,7 +352,7 @@ export const EmployeeDocumentsSection = () => {
           {loading ? (
             <ActivityIndicator color={colors.primary} size={18} />
           ) : (
-            <RefreshCw color={colors.primary} size={18} />
+            <Text style={styles.actionGlyph}>R</Text>
           )}
         </Pressable>
       </View>
@@ -491,7 +490,7 @@ export const EmployeeDocumentsSection = () => {
                     selectFile(configuration).catch(() => undefined);
                   }}
                   style={styles.filePicker}>
-                  <FileUp color={colors.primary} size={20} />
+                  <Text style={styles.actionGlyph}>+</Text>
                   <View style={styles.filePickerCopy}>
                     <Text numberOfLines={1} style={styles.filePickerTitle}>
                       {draft.file?.name ?? 'Choose document'}
@@ -540,7 +539,6 @@ const DocumentDateField = ({
   minimumDate?: Date;
   onChange: (value: string) => void;
 }) => {
-  const colors = useAppColors();
   const styles = useThemedStyles(createStyles);
   const [open, setOpen] = useState(false);
   const current = value ? new Date(`${value}T00:00:00`) : new Date();
@@ -558,7 +556,7 @@ const DocumentDateField = ({
         accessibilityRole="button"
         onPress={() => setOpen(true)}
         style={styles.dateButton}>
-        <CalendarDays color={colors.primary} size={17} />
+        <Text style={styles.dateGlyph}>D</Text>
         <Text style={value ? styles.dateValue : styles.datePlaceholder}>
           {value ? format(current, 'dd MMM yyyy') : 'Select date'}
         </Text>
@@ -600,6 +598,11 @@ const createStyles = (colors: AppColors) =>
       height: 42,
       justifyContent: 'center',
       width: 42,
+    },
+    actionGlyph: {
+      ...typography.body,
+      color: colors.primary,
+      fontWeight: '800',
     },
     pending: {
       ...typography.caption,
@@ -711,6 +714,11 @@ const createStyles = (colors: AppColors) =>
       gap: spacing.sm,
       minHeight: 48,
       paddingHorizontal: spacing.md,
+    },
+    dateGlyph: {
+      ...typography.caption,
+      color: colors.primary,
+      fontWeight: '800',
     },
     dateValue: {
       ...typography.body,
