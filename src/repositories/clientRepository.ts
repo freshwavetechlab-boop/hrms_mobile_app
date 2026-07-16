@@ -1,7 +1,9 @@
 import { sessionStorage } from '../services/sessionStorage';
 import { clientApiService } from '../services/clientApiService';
+import { networkService } from '../services/networkService';
+import { getErrorMessage } from '../utils/errorMessage';
 
-const clientCodePattern = /^[A-Z0-9-]{3,24}$/;
+const clientCodePattern = /^[A-Z0-9][A-Z0-9_-]{1,63}$/;
 
 const isResolvedClientActive = (client: ReturnType<typeof sessionStorage.getSelectedClient>) => {
   if (!client?.apiBaseUrl || !client.validatedAt || client.isActive !== true) {
@@ -19,7 +21,7 @@ const isResolvedClientActive = (client: ReturnType<typeof sessionStorage.getSele
 };
 
 export const clientRepository = {
-  restoreClient() {
+  async restoreClient() {
     const selectedClient = sessionStorage.getSelectedClient();
     if (!selectedClient) {
       return undefined;
@@ -30,7 +32,29 @@ export const clientRepository = {
       return undefined;
     }
 
-    return selectedClient;
+    try {
+      const network = await networkService.fetch();
+      const isOnline = Boolean(network.isConnected && network.isInternetReachable !== false);
+      if (!isOnline) {
+        return selectedClient;
+      }
+    } catch {
+      return selectedClient;
+    }
+
+    try {
+      const refreshedClient = await clientApiService.validatePublicClient(selectedClient.code);
+      sessionStorage.saveSelectedClient(refreshedClient);
+      return refreshedClient;
+    } catch (error) {
+      if (getErrorMessage(error) === 'INVALID_CLIENT_CODE') {
+        sessionStorage.clearSelectedClient();
+        return undefined;
+      }
+      // Resolver outages or malformed transient responses must not strand an
+      // otherwise valid cached workspace while the employee is offline.
+      return selectedClient;
+    }
   },
   isApprovedClientCode(clientCode?: string) {
     const selectedClient = sessionStorage.getSelectedClient();

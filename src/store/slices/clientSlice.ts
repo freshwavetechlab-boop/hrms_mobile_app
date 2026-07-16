@@ -36,6 +36,11 @@ const clientSlice = createSlice({
         state.selectedClient = action.payload;
         state.isRestoring = false;
       })
+      .addCase(restoreClient.rejected, (state, action) => {
+        state.selectedClient = undefined;
+        state.isRestoring = false;
+        state.error = action.error.message;
+      })
       .addCase(validateClientCode.pending, state => {
         state.isValidating = true;
         state.error = undefined;

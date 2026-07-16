@@ -6,22 +6,28 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Edge, SafeAreaView } from 'react-native-safe-area-context';
 import { AppColors } from '../../theme/colors';
 import { useAppColors, useThemedStyles } from '../../theme/useAppTheme';
 import { spacing } from '../../theme/spacing';
 
 type Props = PropsWithChildren<{
+  includeTopInset?: boolean;
   scroll?: boolean;
 }>;
 
-export const Screen = ({ children, scroll = true }: Props) => {
+export const Screen = ({ children, includeTopInset = true, scroll = true }: Props) => {
   const colors = useAppColors();
   const screenStyles = useThemedStyles(createStyles);
   const content = <View style={screenStyles.content}>{children}</View>;
+  const edges: Edge[] = includeTopInset
+    ? ['top', 'right', 'bottom', 'left']
+    : ['right', 'bottom', 'left'];
 
   return (
-    <SafeAreaView style={[screenStyles.safeArea, { backgroundColor: colors.surfaceMuted }]}>
+    <SafeAreaView
+      edges={edges}
+      style={[screenStyles.safeArea, { backgroundColor: colors.surfaceMuted }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={screenStyles.keyboardAvoidingView}>

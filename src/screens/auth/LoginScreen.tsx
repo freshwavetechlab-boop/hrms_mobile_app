@@ -1,22 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Image, StyleSheet, Text, View } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import {
-  Building2,
   ChevronLeft,
   Eye,
   EyeOff,
   Fingerprint,
   LogIn,
   MapPin,
-  MapPinOff,
-  RefreshCw,
-  ShieldCheck,
 } from 'lucide-react-native';
-import { Checkbox, TextInput } from 'react-native-paper';
+import { TextInput } from 'react-native-paper';
+import { clientLogos } from '../../assets/clientLogos';
 import { Card } from '../../components/layout/Card';
 import { ClientLogo } from '../../components/layout/ClientLogo';
-import { IconBadge } from '../../components/layout/IconBadge';
 import { Screen } from '../../components/layout/Screen';
 import { AppTextInput } from '../../components/forms/AppTextInput';
 import { PrimaryButton } from '../../components/forms/PrimaryButton';
@@ -32,7 +28,8 @@ import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { typography } from '../../theme/typography';
 import { useTranslation } from '../../localization/useTranslation';
-import { isValidEmail, isValidPassword } from '../../validators/authValidators';
+import { isValidEmployeeIdentifier, isValidPassword } from '../../validators/authValidators';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 type FormValues = {
   email: string;
@@ -40,7 +37,6 @@ type FormValues = {
 };
 
 const signInIcon = () => <LogIn color={colors.surface} size={18} />;
-const changeClientIcon = () => <RefreshCw color={colors.primary} size={18} />;
 const biometricIcon = () => <Fingerprint color={colors.primary} size={18} />;
 const showPasswordIcon = () => <Eye color={colors.textMuted} size={18} />;
 const hidePasswordIcon = () => <EyeOff color={colors.textMuted} size={18} />;
@@ -54,7 +50,6 @@ const LoginScreen = () => {
   const [isCheckingSecurity, setIsCheckingSecurity] = useState(false);
   const [isBiometricLoginReady, setIsBiometricLoginReady] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [isRemembered, setIsRemembered] = useState(false);
   const [showGpsAction, setShowGpsAction] = useState(false);
   const { control, handleSubmit, reset } = useForm<FormValues>({
     defaultValues: { email: '', password: '' },
@@ -71,7 +66,6 @@ const LoginScreen = () => {
 
     if (!selectedClient) {
       reset({ email: '', password: '' });
-      setIsRemembered(false);
       return undefined;
     }
 
@@ -83,15 +77,13 @@ const LoginScreen = () => {
         }
         if (credentials) {
           reset(credentials);
-          setIsRemembered(true);
           return;
         }
         reset({ email: '', password: '' });
-        setIsRemembered(false);
       })
       .catch(() => {
         if (!isCancelled) {
-          setIsRemembered(false);
+          reset({ email: '', password: '' });
         }
       });
 
@@ -121,19 +113,20 @@ const LoginScreen = () => {
   }, [refreshGpsAction]);
 
   const showSecurityError = (error: unknown) => {
-    if (error instanceof Error && error.message === 'MOCK_LOCATION_DETECTED') {
+    const message = getErrorMessage(error);
+    if (message === 'MOCK_LOCATION_DETECTED') {
       Alert.alert('Mock location blocked', MOCK_LOCATION_MESSAGE);
       return;
     }
-    if (error instanceof Error && error.message === 'LOCATION_SECURITY_REQUIRED') {
+    if (message === 'LOCATION_SECURITY_REQUIRED') {
       Alert.alert(t('securityCheckFailed'), t('securityCheckFailedMessage'));
       return;
     }
-    if (error instanceof Error && error.message === 'LOCATION_PERMISSION_REQUIRED') {
+    if (message === 'LOCATION_PERMISSION_REQUIRED') {
       Alert.alert(t('locationPermissionDenied'), t('locationPermissionAttendance'));
       return;
     }
-    if (error instanceof Error && error.message === 'LOCATION_SETTINGS_DISABLED') {
+    if (message === 'LOCATION_SETTINGS_DISABLED') {
       setShowGpsAction(true);
       Alert.alert(t('gpsRequiredTitle'), t('gpsRequiredMessage'), [
         { text: t('cancel'), style: 'cancel' },
@@ -141,56 +134,80 @@ const LoginScreen = () => {
       ]);
       return;
     }
-    if (error instanceof Error && error.message === 'DEVICE_REGISTRATION_MISMATCH') {
+    if (message === 'DEVICE_REGISTRATION_MISMATCH') {
       Alert.alert(
         t('loginFailed'),
         'This profile is already registered with another employee/device on this app. Please contact your HR.',
       );
       return;
     }
-    if (error instanceof Error && error.message === 'BIOMETRIC_LOGIN_NOT_REGISTERED') {
+    if (message === 'BIOMETRIC_LOGIN_NOT_REGISTERED') {
       Alert.alert(t('biometricLoginFailed'), t('biometricLoginNotRegistered'));
       return;
     }
-    if (error instanceof Error && error.message === 'BIOMETRIC_NOT_ENROLLED') {
+    if (message === 'BIOMETRIC_NOT_ENROLLED') {
       Alert.alert(t('biometricRequired'), t('biometricRequiredLoginMessage'));
       return;
     }
-    if (error instanceof Error && error.message === 'BIOMETRIC_CANCELLED') {
+    if (message === 'BIOMETRIC_CANCELLED') {
       Alert.alert(t('biometricCancelled'), t('biometricLoginFailedMessage'));
       return;
     }
+    if (message === 'SESSION_SECURE_STORAGE_FAILED') {
+      Alert.alert(
+        'Secure storage unavailable',
+        'Unlock the phone, restart the app, and try again. The app could not safely store your login session.',
+      );
+      return;
+    }
     if (
-      error instanceof Error &&
-      (error.message === 'INVALID_LOGIN' || error.message === 'API_LOGIN_TOKEN_MISSING')
+      message === 'INVALID_LOGIN' ||
+      message === 'LOGIN_FIELDS_REQUIRED' ||
+      message === 'API_LOGIN_TOKEN_MISSING'
     ) {
       Alert.alert(t('loginFailed'), t('invalidLoginMessage'));
       return;
     }
-    if (error instanceof Error && error.message === 'NETWORK_UNAVAILABLE') {
+    if (message === 'LOGIN_RATE_LIMITED') {
+      Alert.alert(
+        'Too many login attempts',
+        'Please wait one minute before trying to sign in again.',
+      );
+      return;
+    }
+    if (message === 'NETWORK_UNAVAILABLE') {
       Alert.alert(t('networkUnavailable'), t('networkUnavailableMessage'));
       return;
     }
-    if (error instanceof Error && error.message === 'REQUEST_TIMEOUT') {
+    if (message === 'REQUEST_TIMEOUT') {
       Alert.alert(t('requestTimedOut'), t('requestTimedOutMessage'));
       return;
     }
     if (
-      error instanceof Error &&
-      (error.message === 'SERVER_UNAVAILABLE' || error.message === 'LOGIN_ACCESS_DENIED')
+      message === 'SERVER_UNAVAILABLE' || message === 'LOGIN_ACCESS_DENIED'
     ) {
       Alert.alert(t('serverUnavailable'), t('serverUnavailableMessage'));
       return;
     }
     if (
-      error instanceof Error &&
-      (error.message === 'CLIENT_AUTH_MISMATCH' ||
-        error.message === 'USER_CLIENT_NOT_ASSIGNED' ||
-        error.message === 'INVALID_CLIENT_CODE')
+      message === 'LOGIN_CLIENT_REQUIRED' ||
+      message === 'LOGIN_EMPLOYEE_REQUIRED' ||
+      message === 'LOGIN_ESS_PERMISSION_REQUIRED' ||
+      message === 'ESS_IDENTITY_REQUIRED' ||
+      message === 'ESS_ACCESS_REQUIRED' ||
+      message === 'ESS_ACCOUNT_INACTIVE' ||
+      message === 'ESS_PROFILE_REQUIRED'
     ) {
       Alert.alert(
         t('loginFailed'),
-        'This account does not belong to the selected client code. Please verify the code or contact HR.',
+        'This account is not linked to an active employee profile with mobile ESS access. Please contact HR.',
+      );
+      return;
+    }
+    if (message === 'PASSWORD_CHANGE_REQUIRED') {
+      Alert.alert(
+        t('loginFailed'),
+        'Your password must be changed before mobile ESS can be used. Please change it in the HRMS web portal or contact HR.',
       );
       return;
     }
@@ -210,7 +227,7 @@ const LoginScreen = () => {
   };
 
   const onSubmit = (values: FormValues) => {
-    if (!isValidEmail(values.email) || !isValidPassword(values.password)) {
+    if (!isValidEmployeeIdentifier(values.email) || !isValidPassword(values.password)) {
       Alert.alert(t('invalidLogin'), t('invalidLoginMessage'));
       return;
     }
@@ -218,14 +235,10 @@ const LoginScreen = () => {
       await dispatch(login({ identifier: values.email.trim(), password: values.password })).unwrap();
       if (selectedClient) {
         try {
-          if (isRemembered) {
-            await credentialStorageService.save(selectedClient.code, {
-              email: values.email.trim(),
-              password: values.password,
-            });
-          } else {
-            await credentialStorageService.clear(selectedClient.code);
-          }
+          await credentialStorageService.save(selectedClient.code, {
+            email: values.email.trim(),
+            password: values.password,
+          });
         } catch {
           // Credential persistence must never invalidate a successful HRMS login.
         }
@@ -244,14 +257,6 @@ const LoginScreen = () => {
     dispatch(clearClientSelection());
   };
 
-  const toggleRememberMe = () => {
-    const nextValue = !isRemembered;
-    setIsRemembered(nextValue);
-    if (!nextValue && selectedClient) {
-      credentialStorageService.clear(selectedClient.code).catch(() => undefined);
-    }
-  };
-
   return (
     <Screen>
       <View style={styles.topAction}>
@@ -259,42 +264,28 @@ const LoginScreen = () => {
           {t('backToClientCode')}
         </PrimaryButton>
       </View>
-      <View style={styles.brandPanel}>
-        <View style={styles.brandTop}>
-          <View style={styles.logoMark}>
-            <Building2 color={colors.surface} size={28} strokeWidth={2.3} />
-          </View>
-          <View style={styles.securityPill}>
-            <ShieldCheck color={colors.success} size={16} strokeWidth={2.4} />
-            <Text style={styles.securityText}>{t('secureHrms')}</Text>
-          </View>
-        </View>
-        <Text accessibilityRole="header" style={styles.title}>
-          {t('loginTitle')}
+      <View style={styles.brandHeader}>
+        <Image
+          accessibilityLabel="Frevone logo"
+          resizeMode="cover"
+          source={clientLogos.frevone}
+          style={styles.frevoneLogo}
+        />
+        <Text accessibilityRole="header" style={styles.signInTitle}>
+          {t('signIn')}
         </Text>
-        <Text style={styles.subtitle}>{t('loginSubtitle')}</Text>
       </View>
       <Card>
         {selectedClient ? (
           <View style={styles.clientPanel}>
-            <ClientLogo branding={selectedClient.branding} size="sm" />
+            <ClientLogo branding={selectedClient.branding} size="lg" wide />
             <View style={styles.clientCopy}>
               <Text style={styles.clientLabel}>{t('selectedClient')}</Text>
               <Text style={styles.clientName}>{selectedClient.name}</Text>
               <Text style={styles.clientCode}>{selectedClient.code}</Text>
             </View>
-            <PrimaryButton compact icon={changeClientIcon} mode="outlined" onPress={onChangeClient}>
-              {t('changeClient')}
-            </PrimaryButton>
           </View>
         ) : null}
-        <View style={styles.notice}>
-          <IconBadge Icon={MapPinOff} tone="warning" size={18} />
-          <View style={styles.noticeTextWrap}>
-            <Text style={styles.noticeTitle}>{t('locationIntegrityRequired')}</Text>
-            <Text style={styles.noticeBody}>{t('mockLocationBlockedBeforeLogin')}</Text>
-          </View>
-        </View>
         {showGpsAction ? (
           <PrimaryButton
             compact
@@ -309,15 +300,15 @@ const LoginScreen = () => {
           name="email"
           render={({ field: { onChange, value } }) => (
             <AppTextInput
-              accessibilityLabel={t('emailAddress')}
-              autoComplete="email"
+              accessibilityLabel={t('username')}
+              autoComplete="username"
               autoCapitalize="none"
+              autoCorrect={false}
               importantForAutofill="yes"
-              keyboardType="email-address"
-              label={t('emailAddress')}
+              label={t('username')}
               onChangeText={onChange}
               returnKeyType="next"
-              textContentType="emailAddress"
+              textContentType="username"
               value={value}
             />
           )}
@@ -349,22 +340,6 @@ const LoginScreen = () => {
             />
           )}
         />
-        <Pressable
-          accessibilityLabel={t('rememberMe')}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: isRemembered }}
-          onPress={toggleRememberMe}
-          style={styles.rememberRow}>
-          <Checkbox.Android
-            color={colors.primary}
-            onPress={toggleRememberMe}
-            status={isRemembered ? 'checked' : 'unchecked'}
-          />
-          <View style={styles.rememberCopy}>
-            <Text style={styles.rememberTitle}>{t('rememberMe')}</Text>
-            <Text style={styles.rememberHint}>{t('credentialsStoredSecurely')}</Text>
-          </View>
-        </Pressable>
         <PrimaryButton icon={signInIcon} loading={isCheckingSecurity} onPress={handleSubmit(onSubmit)}>
           {t('signIn')}
         </PrimaryButton>
@@ -386,70 +361,20 @@ const styles = StyleSheet.create({
   topAction: {
     alignItems: 'flex-start',
   },
-  brandPanel: {
-    backgroundColor: colors.primaryDark,
-    borderRadius: 8,
-    gap: spacing.md,
-    overflow: 'hidden',
-    padding: spacing.xl,
-    paddingTop: spacing.xxl,
-  },
-  brandTop: {
+  brandHeader: {
     alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
   },
-  logoMark: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderColor: 'rgba(255,255,255,0.22)',
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 56,
-    justifyContent: 'center',
-    width: 56,
-  },
-  securityPill: {
-    alignItems: 'center',
+  frevoneLogo: {
     backgroundColor: colors.surface,
-    borderRadius: 8,
-    flexDirection: 'row',
-    gap: spacing.xs,
-    minHeight: 36,
-    paddingHorizontal: spacing.md,
+    height: 92,
+    width: 230,
   },
-  securityText: {
-    ...typography.caption,
-    color: colors.text,
-  },
-  title: {
+  signInTitle: {
     ...typography.title,
-    color: colors.surface,
-  },
-  subtitle: {
-    ...typography.body,
-    color: '#DCE8FF',
-  },
-  notice: {
-    alignItems: 'center',
-    backgroundColor: colors.warningSoft,
-    borderRadius: 8,
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.md,
-  },
-  noticeTextWrap: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  noticeTitle: {
-    ...typography.body,
     color: colors.text,
-    fontWeight: '700',
-  },
-  noticeBody: {
-    ...typography.caption,
-    color: colors.textMuted,
+    textAlign: 'center',
   },
   clientPanel: {
     alignItems: 'center',
@@ -476,24 +401,6 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.primary,
     fontWeight: '700',
-  },
-  rememberRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    minHeight: 48,
-  },
-  rememberCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  rememberTitle: {
-    ...typography.body,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  rememberHint: {
-    ...typography.caption,
-    color: colors.textMuted,
   },
 });
 

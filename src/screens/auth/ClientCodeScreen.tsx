@@ -14,6 +14,7 @@ import { validateClientCode } from '../../store/slices/clientSlice';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { typography } from '../../theme/typography';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 type FormValues = {
   clientCode: string;
@@ -34,7 +35,7 @@ const ClientCodeScreen = () => {
     try {
       await dispatch(validateClientCode(values.clientCode)).unwrap();
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
+      const message = getErrorMessage(error);
       if (message === 'NETWORK_UNAVAILABLE') {
         Alert.alert(t('networkUnavailable'), t('networkUnavailableMessage'));
         return;

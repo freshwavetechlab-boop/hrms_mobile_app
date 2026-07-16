@@ -1,4 +1,4 @@
-import { AttendanceRecord } from '../types/domain';
+import { AttendancePeriodScope, AttendanceRecord } from '../types/domain';
 import { essApiService } from './essApiService';
 
 export const attendanceService = {
@@ -8,19 +8,30 @@ export const attendanceService = {
   async markAttendance(record: AttendanceRecord) {
     return essApiService.punchAttendance(record);
   },
-  async getAttendanceHistory(employeeId: string) {
-    const [summary, daily] = await Promise.allSettled([
-      essApiService.getAttendanceSummary(employeeId),
-      essApiService.getAttendanceHistory(employeeId),
-    ]);
-
-    const records = [
-      ...(summary.status === 'fulfilled' ? summary.value : []),
-      ...(daily.status === 'fulfilled' ? daily.value : []),
-    ];
-    const uniqueRecords = new Map(records.map(record => [record.id, record]));
-    return Array.from(uniqueRecords.values()).sort(
+  async getAttendanceToday() {
+    return essApiService.getAttendanceToday();
+  },
+  async getAttendanceHistory(employeeId: string, month: string) {
+    const records = await essApiService.getAttendanceHistory(employeeId, month);
+    return records.sort(
       (left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
     );
+  },
+  async getAttendancePeriod(
+    employeeId: string,
+    month: string,
+    scope: AttendancePeriodScope,
+  ) {
+    const period = await essApiService.getAttendancePeriod(employeeId, month, scope);
+    return {
+      ...period,
+      records: [...period.records].sort(
+        (left, right) =>
+          new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
+      ),
+    };
+  },
+  async getAttendanceSummary(employeeId: string, month: string) {
+    return essApiService.getAttendanceSummary(employeeId, month);
   },
 };

@@ -65,12 +65,19 @@ export const deviceRegistrationService = {
     return registeredDevice;
   },
   isBiometricLoginReady(clientCode: string) {
-    try {
-      this.assertCanUseBiometricLogin(clientCode);
-      return true;
-    } catch {
-      return false;
-    }
+    const normalizedClientCode = clientCode.trim().toUpperCase();
+    const currentDeviceId = sessionStorage.getOrCreateDeviceId();
+    const registeredDevice = sessionStorage.getRegisteredDevice();
+
+    return Boolean(
+      registeredDevice &&
+        registeredDevice.clientCode === normalizedClientCode &&
+        registeredDevice.deviceId === currentDeviceId &&
+        sessionStorage.isBiometricLoginEnabled(
+          normalizedClientCode,
+          registeredDevice.employeeId,
+        ),
+    );
   },
   registerCurrentDevice(clientCode: string, employeeId: string) {
     const normalizedClientCode = clientCode.trim().toUpperCase();

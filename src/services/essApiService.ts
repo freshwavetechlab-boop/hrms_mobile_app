@@ -1,12 +1,17 @@
 import axios, { AxiosResponse } from 'axios';
-import { initialLeaveBalances } from '../constants/leave';
 import { APP_CONFIG } from '../constants/app';
 import {
+  AttendancePeriodResponse,
+  AttendancePeriodScope,
+  AttendancePunchResult,
   AttendanceRecord,
+  AttendanceTodayState,
   AttendanceType,
   Employee,
   FaceRegistrationCapture,
+  Holiday,
   LeaveApplication,
+  LeaveBalance,
   LeaveStatus,
   LeaveType,
 } from '../types/domain';
@@ -18,12 +23,16 @@ import { sessionStorage } from './sessionStorage';
 type ApiObject = Record<string, unknown>;
 
 const assertApiConfigured = () => {
-  if (!APP_CONFIG.apiEnabled || !APP_CONFIG.apiBaseUrl) {
+  const client = sessionStorage.getSelectedClient() ?? sessionStorage.getSession()?.client;
+  if (!client?.apiBaseUrl) {
     throw new Error('LIVE_API_NOT_CONFIGURED');
   }
 };
 
-const isApiConfigured = () => Boolean(APP_CONFIG.apiEnabled && APP_CONFIG.apiBaseUrl);
+const isApiConfigured = () => {
+  const client = sessionStorage.getSelectedClient() ?? sessionStorage.getSession()?.client;
+  return Boolean(client?.apiBaseUrl);
+};
 
 const isObject = (value: unknown): value is ApiObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -62,6 +71,23 @@ const getNumber = (source: ApiObject, keys: string[], fallback = 0) => {
   return fallback;
 };
 
+const getBoolean = (source: ApiObject, keys: string[], fallback = false) => {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'number') {
+      return value !== 0;
+    }
+    if (typeof value === 'string') {
+      if (value.toLowerCase() === 'true') return true;
+      if (value.toLowerCase() === 'false') return false;
+    }
+  }
+  return fallback;
+};
+
 const toArray = (payload: unknown): unknown[] => {
   if (Array.isArray(payload)) {
     return payload;
@@ -80,24 +106,40 @@ const toArray = (payload: unknown): unknown[] => {
   return [];
 };
 
-const normalizeLeaveType = (value: unknown): LeaveType => {
-  const text = String(value ?? '').toLowerCase().replace(/[\s_-]/g, '');
-  if (text.includes('maternity')) {
-    return 'MATERNITY';
-  }
-  if (text.includes('lop') || text.includes('lossofpay') || text.includes('unpaid')) {
-    return 'LOSS_OF_PAY';
-  }
-  return 'CASUAL_LEAVE';
+const leaveTypeKey = (leaveCode: unknown, leaveType?: unknown): LeaveType => {
+  const normalizedCode = String(leaveCode ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const normalizedName = String(leaveType ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalizedCode || normalizedName;
 };
 
 const normalizeLeaveStatus = (value: unknown): LeaveStatus => {
-  const text = String(value ?? '').toUpperCase();
-  if (text.includes('APPROV')) {
-    return 'APPROVED';
-  }
+  const text = String(value ?? '').trim().toUpperCase();
   if (text.includes('REJECT')) {
     return 'REJECTED';
+  }
+  if (text.includes('SENT BACK') || text.includes('RETURN')) {
+    return 'RETURNED';
+  }
+  // "Pending Approval" contains the word "Approval", so pending must be
+  // checked before approved.
+  if (
+    text.includes('PENDING') ||
+    text.includes('AWAIT') ||
+    text.includes('SUBMIT') ||
+    text.includes('IN PROGRESS')
+  ) {
+    return 'PENDING';
+  }
+  if (text.includes('APPROVED')) {
+    return 'APPROVED';
   }
   return 'PENDING';
 };
@@ -119,48 +161,69 @@ const mapEmployee = (payload: unknown, fallback: Employee): Employee => {
     department: getString(source, ['department', 'departmentName'], fallback.department),
     designation: getString(source, ['designation', 'designationName', 'role'], fallback.designation),
     manager: getString(source, ['manager', 'reportingManager', 'reportingManagerName'], fallback.manager),
+    dateOfJoining: getString(source, ['dateOfJoining', 'joiningDate'], fallback.dateOfJoining),
+    workLocation: getString(source, ['workLocation', 'workLocationName'], fallback.workLocation),
+    attendanceOffice: getString(source, ['attendanceOffice', 'geoFenceOffice', 'officeLocation'], fallback.attendanceOffice),
     avatarUrl: getString(source, ['avatarUrl', 'profileImage', 'photoUrl'], fallback.avatarUrl),
   };
 };
 
 const mapLeaveBalances = (payload: unknown) => {
-  const balances: Record<LeaveType, number> = { ...initialLeaveBalances };
+  const balances: Record<LeaveType, number> = {};
   const codes: Partial<Record<LeaveType, string>> = {};
   const allowHalfDay: Partial<Record<LeaveType, boolean>> = {};
+  const availableTypes = new Map<LeaveType, LeaveBalance>();
+  let items = toArray(payload);
 
-  if (isObject(payload)) {
-    const directKeys: Array<[LeaveType, string[]]> = [
-      ['CASUAL_LEAVE', ['CASUAL_LEAVE', 'casualLeave', 'casual', 'cl']],
-      ['LOSS_OF_PAY', ['LOSS_OF_PAY', 'lossOfPay', 'lop']],
-      ['MATERNITY', ['MATERNITY', 'maternity', 'ml']],
-    ];
-    directKeys.forEach(([type, keys]) => {
-      const value = getNumber(payload, keys, Number.NaN);
-      if (Number.isFinite(value)) {
-        balances[type] = value;
-      }
-    });
+  if (items.length === 0 && isObject(payload)) {
+    const isSingleBalance = ['leaveCode', 'code', 'leaveType', 'leaveName'].some(
+      key => payload[key] !== undefined,
+    );
+    items = isSingleBalance
+      ? [payload]
+      : Object.entries(payload)
+          .filter(([, value]) =>
+            typeof value === 'number' ||
+            (typeof value === 'string' && Number.isFinite(Number(value))),
+          )
+          .map(([code, balance]) => ({ leaveCode: code, leaveType: code, balance }));
   }
 
-  toArray(payload).forEach(item => {
+  items.forEach(item => {
     if (!isObject(item)) {
       return;
     }
-    const type = normalizeLeaveType(
-      item.leaveType ?? item.type ?? item.leaveName ?? item.name ?? item.leaveCode ?? item.code,
-    );
-    codes[type] = getString(item, ['leaveCode', 'code'], codes[type]);
-    if (typeof item.allowHalfDay === 'boolean') {
-      allowHalfDay[type] = item.allowHalfDay;
+    const rawCode = getString(item, ['leaveCode', 'code']);
+    const rawType = getString(item, ['leaveType', 'leaveName', 'name', 'type']);
+    const key = leaveTypeKey(rawCode, rawType);
+    if (!key) {
+      return;
     }
-    balances[type] = getNumber(
+    const leaveCode = rawCode || key;
+    const leaveType = rawType || leaveCode;
+    const balance = getNumber(
       item,
       ['balance', 'availableBalance', 'available', 'remaining', 'days', 'leaveBalance'],
-      balances[type],
+      0,
     );
+    const canUseHalfDay =
+      typeof item.allowHalfDay === 'boolean' ? item.allowHalfDay : true;
+    const balanceDate = getString(item, ['balanceDate', 'asOfDate', 'date']);
+
+    balances[key] = balance;
+    codes[key] = leaveCode;
+    allowHalfDay[key] = canUseHalfDay;
+    availableTypes.set(key, {
+      key,
+      leaveCode,
+      leaveType,
+      balance,
+      balanceDate: balanceDate || undefined,
+      allowHalfDay: canUseHalfDay,
+    });
   });
 
-  return { balances, codes, allowHalfDay };
+  return { balances, codes, allowHalfDay, availableTypes: [...availableTypes.values()] };
 };
 
 const mapLeaveApplication = (
@@ -170,18 +233,25 @@ const mapLeaveApplication = (
   if (!isObject(payload)) {
     return undefined;
   }
-  const fromDate = getString(payload, ['fromDate', 'startDate', 'from', 'dateFrom']);
-  const toDate = getString(payload, ['toDate', 'endDate', 'to', 'dateTo'], fromDate);
-  if (!fromDate) {
+  const rawFromDate = getString(payload, ['fromDate', 'startDate', 'from', 'dateFrom']);
+  const rawToDate = getString(payload, ['toDate', 'endDate', 'to', 'dateTo'], rawFromDate);
+  if (!rawFromDate) {
     return undefined;
   }
+  const fromDate = rawFromDate.slice(0, 10);
+  const toDate = rawToDate.slice(0, 10);
+  const leaveCode = getString(payload, ['leaveCode', 'code']);
+  const leaveTypeName = getString(
+    payload,
+    ['leaveType', 'leaveName', 'name', 'type'],
+    leaveCode,
+  );
   return {
     id: getString(payload, ['id', 'requestId', 'leaveRequestId'], createId('leave')),
     employeeId: getString(payload, ['employeeId', 'employeeCode'], fallbackEmployeeId),
-    leaveType: normalizeLeaveType(
-      payload.leaveType ?? payload.type ?? payload.leaveName ?? payload.leaveCode,
-    ),
-    leaveCode: getString(payload, ['leaveCode', 'code']),
+    leaveType: leaveTypeKey(leaveCode, leaveTypeName),
+    leaveTypeName,
+    leaveCode,
     dayType: getString(payload, ['dayType'], 'Full Day') as LeaveApplication['dayType'],
     fromDate,
     toDate,
@@ -203,6 +273,12 @@ const mapAttendanceRecord = (
   const attendanceDate = getString(payload, ['attendanceDate', 'date']);
   const checkInTime = getString(payload, ['checkInTime']);
   const checkOutTime = getString(payload, ['checkOutTime']);
+  const hasRecordedPunch = Boolean(checkInTime || checkOutTime);
+  const cameraCaptureConfirmed = getBoolean(
+    payload,
+    ['cameraCaptureConfirmed', 'cameraConfirmed'],
+    false,
+  );
   const punchTimestamp = getString(
     payload,
     ['timestamp', 'punchTime', 'attendanceDateTime', 'createdAt'],
@@ -223,6 +299,8 @@ const mapAttendanceRecord = (
       sessionStorage.getSession()?.client?.code ??
       'UNASSIGNED',
     employeeId: getString(payload, ['employeeId', 'employeeCode'], fallbackEmployeeId),
+    hrmsClientId: sessionStorage.getSession()?.hrmsClientId,
+    hrmsEmployeeId: sessionStorage.getSession()?.hrmsEmployeeId,
     timestamp,
     latitude: getNumber(payload, ['latitude', 'lat']),
     longitude: getNumber(payload, ['longitude', 'lng', 'lon']),
@@ -230,16 +308,18 @@ const mapAttendanceRecord = (
     attendanceType: checkOutTime
       ? 'CHECK_OUT'
       : normalizeAttendanceType(payload.action ?? payload.attendanceType ?? payload.punchType ?? payload.type),
+    attendanceStatus: getString(payload, ['status', 'attendanceStatus']),
+    payableValue: getNumber(payload, ['payableValue'], 0),
+    remarks: getString(payload, ['remarks']),
     deviceId: getString(payload, ['deviceId'], sessionStorage.getOrCreateDeviceId()),
-    batteryPercentage: getNumber(payload, ['batteryPercentage', 'battery'], 0),
-    appVersion: APP_CONFIG.version,
-    capturedImageRef: getString(payload, ['capturedImageRef', 'selfieRef', 'imageRef']),
+    deviceModel: getString(payload, ['deviceModel']) || undefined,
+    osVersion: getString(payload, ['osVersion']) || undefined,
+    appVersion: getString(payload, ['appVersion'], APP_CONFIG.version),
+    cameraCaptureConfirmed,
+    biometricConfirmed: getBoolean(payload, ['biometricConfirmed'], false),
+    isPunchRecord:
+      hasRecordedPunch || getBoolean(payload, ['punchRecorded', 'isPunchRecord'], false),
     networkType: getString(payload, ['networkType'], 'unknown'),
-    facialVerification: {
-      passed: true,
-      provider: 'backend-history',
-      referenceId: getString(payload, ['faceReferenceId', 'referenceId']),
-    },
     syncStatus: 'SYNCED',
     attempts: 0,
   };
@@ -263,18 +343,43 @@ const attendanceErrorCode = (payload: ApiObject) => {
   if (status === 'FacialVerificationRequired') return 'FACE_API_NOT_CONFIGURED';
   if (status === 'ReasonRequired' || payload.requiresReason === true) return 'ATTENDANCE_REASON_REQUIRED';
   if (status === 'AlreadyCheckedIn') return 'ALREADY_CHECKED_IN';
+  if (status === 'AlreadyCheckedOut') return 'ALREADY_CHECKED_OUT';
   if (status === 'CheckInRequired') return 'CHECK_IN_REQUIRED';
+  if (status === 'ApprovalPending') return 'ATTENDANCE_APPROVAL_PENDING';
+  if (status === 'ActionNotAllowed') return 'ATTENDANCE_ACTION_NOT_ALLOWED';
+  if (status === 'AttendanceStateConflict') return 'ATTENDANCE_STATE_CONFLICT';
+  if (status === 'IdempotencyKeyConflict') return 'ATTENDANCE_REQUEST_CONFLICT';
+  if (status === 'EmployeeNotFound') return 'ATTENDANCE_EMPLOYEE_NOT_FOUND';
+  if (status === 'CameraConfirmationRequired') return 'ATTENDANCE_CAMERA_REQUIRED';
+  if (status === 'BiometricConfirmationRequired') return 'ATTENDANCE_BIOMETRIC_REQUIRED';
+  if (status === 'AttendanceLocked') return 'ATTENDANCE_DATE_LOCKED';
+  if (status === 'InvalidCapturedAt') return 'ATTENDANCE_DEVICE_TIME_INVALID';
+  if (status === 'LocationAccuracyTooLow') return 'LOCATION_ACCURACY_LOW';
+  if (status === 'ApprovalWorkflowUnavailable') return 'ATTENDANCE_APPROVAL_UNAVAILABLE';
+  if (
+    status === 'ClientRequestIdRequired' ||
+    status === 'DeviceIdRequired' ||
+    status === 'NetworkTypeRequired' ||
+    status === 'AppVersionRequired'
+  ) {
+    return 'ATTENDANCE_DEVICE_CONTEXT_REQUIRED';
+  }
+  if (status === 'EmployeeOrClientInactive') return 'ATTENDANCE_EMPLOYEE_INACTIVE';
   return getString(payload, ['message', 'error'], 'ATTENDANCE_API_REJECTED');
 };
 
-const assertAttendanceAccepted = (payload: unknown, requireRecorded = false) => {
+const assertAttendanceAccepted = (
+  payload: unknown,
+  requireRecorded = false,
+  submittedReason = '',
+) => {
   if (!isObject(payload)) {
     throw new Error('ATTENDANCE_API_INVALID_RESPONSE');
   }
   if (payload.allowed !== true || (requireRecorded && payload.punchRecorded !== true)) {
     throw new Error(attendanceErrorCode(payload));
   }
-  if (payload.requiresReason === true) {
+  if (payload.requiresReason === true && !submittedReason.trim()) {
     throw new Error('ATTENDANCE_REASON_REQUIRED');
   }
   return payload;
@@ -284,27 +389,234 @@ const normalizeAttendanceApiError = (error: unknown) => {
   if (!axios.isAxiosError(error) || !error.response) {
     return error;
   }
+  if ([408, 429, 502, 503, 504].includes(error.response.status)) {
+    return error;
+  }
+  if (error.response.status >= 500) {
+    return new Error('ATTENDANCE_SERVER_ERROR');
+  }
   const payload = error.response.data;
   return new Error(isObject(payload) ? attendanceErrorCode(payload) : 'ATTENDANCE_API_REJECTED');
 };
 
 const attendancePayload = (record: AttendanceRecord) => ({
+  clientRequestId: record.id,
   action: record.attendanceType === 'CHECK_IN' ? 'CheckIn' : 'CheckOut',
   latitude: record.latitude,
   longitude: record.longitude,
   accuracyMeters: record.accuracyMeters,
   capturedAt: record.timestamp,
-  reason: '',
-  facial: {
-    passed: record.facialVerification.passed,
-    faceMatchScore: record.facialVerification.faceMatchScore,
-    livenessScore: record.facialVerification.livenessScore,
-    provider: record.facialVerification.provider,
-    referenceId: record.facialVerification.referenceId,
-  },
+  deviceId: record.deviceId,
+  deviceModel: record.deviceModel ?? '',
+  osVersion: record.osVersion ?? '',
+  networkType: record.networkType,
+  appVersion: record.appVersion,
+  cameraCaptureConfirmed: record.cameraCaptureConfirmed,
+  biometricConfirmed: record.biometricConfirmed,
+  reason: record.reason?.trim() ?? '',
 });
 
-const currentPayrollMonth = () => new Date().toISOString().slice(0, 7);
+const mapAttendanceTodayState = (payload: unknown): AttendanceTodayState => {
+  if (!isObject(payload)) {
+    throw new Error('ATTENDANCE_API_INVALID_RESPONSE');
+  }
+  const attendanceDate = getString(payload, ['attendanceDate', 'date']).slice(0, 10);
+  const nextExpectedAction = getString(
+    payload,
+    ['nextExpectedAction'],
+    'CheckIn',
+  ) as AttendanceTodayState['nextExpectedAction'];
+  if (!attendanceDate) {
+    throw new Error('ATTENDANCE_API_INVALID_RESPONSE');
+  }
+  return {
+    attendanceDate,
+    status: getString(payload, ['status'], 'NotMarked'),
+    checkInTime: getString(payload, ['checkInTime']) || undefined,
+    checkOutTime: getString(payload, ['checkOutTime']) || undefined,
+    totalHours: getNumber(payload, ['totalHours']),
+    payableValue: getNumber(payload, ['payableValue']),
+    nextExpectedAction,
+    approvalPending: getBoolean(payload, ['approvalPending']),
+    shiftCheckInTime: getString(payload, ['shiftCheckInTime'], '09:00:00'),
+    shiftCheckOutTime: getString(payload, ['shiftCheckOutTime'], '18:00:00'),
+    minimumHoursForHalfDay: getNumber(payload, ['minimumHoursForHalfDay'], 4),
+    minimumHoursForFullDay: getNumber(payload, ['minimumHoursForFullDay'], 8),
+    maximumHoursAllowedForFullDay: getNumber(
+      payload,
+      ['maximumHoursAllowedForFullDay'],
+      12,
+    ),
+  };
+};
+
+const normalizedAttendanceOutcome = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+
+const mapAttendancePunchResult = (
+  payload: ApiObject,
+  record: AttendanceRecord,
+): AttendancePunchResult => {
+  const rawDecision = getString(payload, ['decision']);
+  const status = getString(payload, ['status']);
+  const nextExpectedAction = getString(payload, [
+    'nextExpectedAction',
+    'nextAction',
+  ]);
+  const pendingApproval =
+    [rawDecision, status].some(value => {
+      const normalized = normalizedAttendanceOutcome(value);
+      return normalized === 'pendingapproval' || normalized === 'approvalpending';
+    }) ||
+    payload.requiresApproval === true ||
+    normalizedAttendanceOutcome(nextExpectedAction) === 'waitforapproval';
+  const decision = rawDecision || (pendingApproval ? 'PendingApproval' : 'Accepted');
+  const punchId = getString(payload, ['punchId', 'id', 'attendanceId'], record.id);
+
+  return {
+    punchId,
+    decision,
+    nextExpectedAction: nextExpectedAction || undefined,
+    idempotentReplay: getBoolean(payload, ['idempotentReplay'], false),
+    pendingApproval,
+  };
+};
+
+const attendanceMonthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+const assertAttendanceMonth = (month: string) => {
+  if (!attendanceMonthPattern.test(month)) {
+    throw new Error('INVALID_ATTENDANCE_MONTH');
+  }
+  return month;
+};
+
+const attendancePeriodScopes: AttendancePeriodScope[] = [
+  'calendar-month',
+  'attendance-cycle',
+];
+
+const assertAttendancePeriodScope = (scope: AttendancePeriodScope) => {
+  if (!attendancePeriodScopes.includes(scope)) {
+    throw new Error('INVALID_ATTENDANCE_SCOPE');
+  }
+  return scope;
+};
+
+const getLegacyAttendanceHistory = async (employeeId: string, month: string) => {
+  const payload = unwrap(
+    await apiClient.get('/api/ess/dashboard/attendance/daily', {
+      params: { month },
+    }),
+  );
+  return toArray(payload)
+    .map(item => mapAttendanceRecord(item, employeeId))
+    .filter((item): item is AttendanceRecord => Boolean(item));
+};
+
+const mapAttendancePeriodResponse = (
+  payload: unknown,
+  employeeId: string,
+  requestedMonth: string,
+  requestedScope: AttendancePeriodScope,
+): AttendancePeriodResponse => {
+  if (!isObject(payload)) {
+    throw new Error('ATTENDANCE_API_INVALID_RESPONSE');
+  }
+
+  const responseScope = getString(payload, ['scope'], requestedScope);
+  const scope = attendancePeriodScopes.includes(responseScope as AttendancePeriodScope)
+    ? (responseScope as AttendancePeriodScope)
+    : requestedScope;
+  const month = getString(payload, ['month'], requestedMonth);
+  const fromDate = getString(payload, ['fromDate']).slice(0, 10);
+  const toDate = getString(payload, ['toDate']).slice(0, 10);
+  if (!attendanceMonthPattern.test(month) || !fromDate || !toDate) {
+    throw new Error('ATTENDANCE_API_INVALID_RESPONSE');
+  }
+
+  const rawPolicy = payload.policy ?? payload.attendancePolicy;
+  const policySource = isObject(rawPolicy) ? rawPolicy : undefined;
+  const policyId = policySource
+    ? getNumber(policySource, ['id', 'policyId'])
+    : 0;
+  const startDay = policySource
+    ? getNumber(policySource, ['attendanceCycleStartDay', 'startDay'])
+    : 0;
+  const endDay = policySource
+    ? getNumber(policySource, ['attendanceCycleEndDay', 'endDay'])
+    : 0;
+  const policy = policySource
+    ? {
+        id: policyId || undefined,
+        policyBatchId:
+          getString(policySource, ['policyBatchId']) || undefined,
+        name: getString(policySource, ['name', 'policyName'], 'Attendance policy'),
+        attendanceCycleStartDay: startDay || undefined,
+        attendanceCycleEndDay: endDay || undefined,
+      }
+    : undefined;
+  const rawRecords = payload.records ?? payload.attendance ?? [];
+  const records = toArray(rawRecords)
+    .map(item => mapAttendanceRecord(item, employeeId))
+    .filter((item): item is AttendanceRecord => Boolean(item));
+
+  return {
+    scope,
+    month,
+    fromDate,
+    toDate,
+    cycleAvailable: getBoolean(payload, ['cycleAvailable'], Boolean(policy)),
+    policy,
+    records,
+  };
+};
+
+const normalizeAttendanceHistoryApiError = (error: unknown) => {
+  if (!axios.isAxiosError(error) || !error.response) {
+    return error;
+  }
+  const payload = error.response.data;
+  const errorCode = isObject(payload)
+    ? getString(payload, ['error', 'code', 'message'])
+    : '';
+  if (errorCode) {
+    return new Error(errorCode);
+  }
+  return error.response.status >= 500
+    ? new Error('ATTENDANCE_SERVER_ERROR')
+    : new Error('ATTENDANCE_API_REJECTED');
+};
+
+const normalizeLeaveApiError = (error: unknown) => {
+  if (!axios.isAxiosError(error) || !error.response) {
+    return error;
+  }
+  const payload = error.response.data;
+  const message = isObject(payload)
+    ? getString(payload, ['error', 'message', 'detail'])
+    : String(payload ?? '');
+  const normalized = message.toLowerCase();
+  if (normalized.includes('available leave balance')) {
+    return new Error('INSUFFICIENT_LEAVE_BALANCE');
+  }
+  if (normalized.includes('does not allow half-day')) {
+    return new Error('LEAVE_HALF_DAY_UNAVAILABLE');
+  }
+  if (normalized.includes('leave type is unavailable')) {
+    return new Error('LEAVE_TYPE_UNAVAILABLE');
+  }
+  if (normalized.includes('half-day leave can be applied for one date')) {
+    return new Error('INVALID_LEAVE_RANGE');
+  }
+  if (normalized.includes('valid leave date range')) {
+    return new Error('INVALID_LEAVE_DATES');
+  }
+  return new Error('LEAVE_REQUEST_FAILED');
+};
 
 const faceEnrollmentAngles = ['FRONT', 'LEFT', 'RIGHT'] as const;
 
@@ -417,43 +729,69 @@ export const essApiService = {
   },
   async createLeaveRequest(input: Omit<LeaveApplication, 'id' | 'status' | 'appliedAt'>) {
     assertApiConfigured();
-    const payload = unwrap(
-      await apiClient.post('/api/ess/leave/requests', {
-        leaveCode: input.leaveCode,
-        fromDate: input.fromDate,
-        toDate: input.toDate,
-        dayType: input.dayType ?? 'Full Day',
-        reason: input.reason,
-      }),
-    );
-    assertApiAccepted(payload);
-    return mapLeaveApplication(payload, input.employeeId);
-  },
-  async getAttendanceHistory(employeeId: string) {
-    assertApiConfigured();
-    const payload = unwrap(
-      await apiClient.get('/api/ess/dashboard/attendance/daily', {
-        params: { month: currentPayrollMonth() },
-      }),
-    );
-    return toArray(payload)
-      .map(item => mapAttendanceRecord(item, employeeId))
-      .filter((item): item is AttendanceRecord => Boolean(item));
-  },
-  async getAttendanceSummary(employeeId: string) {
-    assertApiConfigured();
-    const payload = unwrap(
-      await apiClient.get('/api/ess/dashboard/attendance', {
-        params: { month: currentPayrollMonth() },
-      }),
-    );
-    const directRecord = mapAttendanceRecord(payload, employeeId);
-    if (directRecord) {
-      return [directRecord];
+    try {
+      const payload = unwrap(
+        await apiClient.post('/api/ess/leave/requests', {
+          leaveCode: input.leaveCode,
+          fromDate: input.fromDate,
+          toDate: input.toDate,
+          dayType: input.dayType ?? 'Full Day',
+          reason: input.reason,
+        }),
+      );
+      assertApiAccepted(payload);
+      return mapLeaveApplication(payload, input.employeeId);
+    } catch (error) {
+      throw normalizeLeaveApiError(error);
     }
-    return toArray(payload)
-      .map(item => mapAttendanceRecord(item, employeeId))
-      .filter((item): item is AttendanceRecord => Boolean(item));
+  },
+  async getAttendanceHistory(employeeId: string, month: string) {
+    assertApiConfigured();
+    const selectedMonth = assertAttendanceMonth(month);
+    return getLegacyAttendanceHistory(employeeId, selectedMonth);
+  },
+  async getAttendancePeriod(
+    employeeId: string,
+    month: string,
+    scope: AttendancePeriodScope,
+  ): Promise<AttendancePeriodResponse> {
+    assertApiConfigured();
+    const selectedMonth = assertAttendanceMonth(month);
+    const selectedScope = assertAttendancePeriodScope(scope);
+    try {
+      const payload = unwrap(
+        await apiClient.get('/api/ess/attendance/history', {
+          params: { month: selectedMonth, scope: selectedScope },
+        }),
+      );
+      return mapAttendancePeriodResponse(
+        payload,
+        employeeId,
+        selectedMonth,
+        selectedScope,
+      );
+    } catch (error) {
+      throw normalizeAttendanceHistoryApiError(error);
+    }
+  },
+  async getAttendanceSummary(_employeeId: string, month: string) {
+    assertApiConfigured();
+    const selectedMonth = assertAttendanceMonth(month);
+    return unwrap(
+      await apiClient.get('/api/ess/dashboard/attendance', {
+        params: { month: selectedMonth },
+      }),
+    );
+  },
+  async getAttendanceToday(): Promise<AttendanceTodayState> {
+    assertApiConfigured();
+    try {
+      return mapAttendanceTodayState(
+        unwrap(await apiClient.get('/api/ess/attendance/today')),
+      );
+    } catch (error) {
+      throw normalizeAttendanceHistoryApiError(error);
+    }
   },
   async validateAttendancePunch(record: AttendanceRecord) {
     assertApiConfigured();
@@ -461,7 +799,7 @@ export const essApiService = {
       const payload = unwrap(
         await apiClient.post('/api/ess/attendance/punch/validate', attendancePayload(record)),
       );
-      return assertAttendanceAccepted(payload);
+      return assertAttendanceAccepted(payload, false, record.reason);
     } catch (error) {
       throw normalizeAttendanceApiError(error);
     }
@@ -470,23 +808,30 @@ export const essApiService = {
     assertApiConfigured();
     try {
       const payload = unwrap(await apiClient.post('/api/ess/attendance/punch', attendancePayload(record)));
-      const accepted = assertAttendanceAccepted(payload, true);
-      return {
-        remoteId: getString(accepted, ['id', 'attendanceId', 'punchId'], record.id),
-      };
+      const accepted = assertAttendanceAccepted(payload, true, record.reason);
+      return mapAttendancePunchResult(accepted, record);
     } catch (error) {
       throw normalizeAttendanceApiError(error);
     }
   },
-  async getHolidays() {
+  async getHolidays(month: string): Promise<Holiday[]> {
     assertApiConfigured();
+    const selectedMonth = assertAttendanceMonth(month);
     const payload = unwrap(
       await apiClient.get('/api/ess/dashboard/holidays', {
-        params: { month: currentPayrollMonth() },
+        params: { month: selectedMonth },
       }),
     );
     return toArray(payload)
-      .map(item => (isObject(item) ? getString(item, ['name', 'title', 'holidayName']) : String(item)))
-      .filter(Boolean);
+      .map(item => {
+        if (!isObject(item)) {
+          return undefined;
+        }
+        const name = getString(item, ['name', 'title', 'holidayName']);
+        const startDate = getString(item, ['startDate', 'date']);
+        const endDate = getString(item, ['endDate'], startDate);
+        return name && startDate ? { name, startDate, endDate } : undefined;
+      })
+      .filter((item): item is Holiday => Boolean(item));
   },
 };

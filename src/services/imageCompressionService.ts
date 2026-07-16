@@ -23,10 +23,6 @@ const blobToBase64 = (blob: Blob) =>
   });
 
 export const imageCompressionService = {
-  async compressSelfie(imageRef: string) {
-    const image = await Images.loadFromFileAsync(normalizeFilePath(imageRef));
-    return image.saveToTemporaryFileAsync('png');
-  },
   async compressEnrollmentSelfie(imageRef: string) {
     const image = await Images.loadFromFileAsync(normalizeFilePath(imageRef));
     return image.saveToTemporaryFileAsync('jpg', 85);

@@ -6,17 +6,19 @@ import { ActivityIndicator } from 'react-native-paper';
 import { RootStackParamList } from './types';
 import { MainTabs } from './MainTabs';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { checkFaceEnrollment, restoreSession } from '../store/slices/authSlice';
+import { invalidateSession, restoreSession } from '../store/slices/authSlice';
 import { useNetworkMonitor } from '../hooks/useNetworkMonitor';
 import { useAppLock } from '../hooks/useAppLock';
 import { useLocationIntegrityMonitor } from '../hooks/useLocationIntegrityMonitor';
 import { setLocale } from '../localization/i18n';
 import { restoreClient } from '../store/slices/clientSlice';
 import { useAppColors, useIsDarkMode } from '../theme/useAppTheme';
+import { authSessionEvents } from '../services/authSessionEvents';
 
 const SplashScreen = lazy(() => import('../screens/splash/SplashScreen'));
 const ClientCodeScreen = lazy(() => import('../screens/auth/ClientCodeScreen'));
 const LoginScreen = lazy(() => import('../screens/auth/LoginScreen'));
+const ChangePasswordScreen = lazy(() => import('../screens/auth/ChangePasswordScreen'));
 const FaceEnrollmentScreen = lazy(() => import('../screens/auth/FaceEnrollmentScreen'));
 const AppLockScreen = lazy(() => import('../screens/auth/AppLockScreen'));
 const AttendanceCaptureScreen = lazy(() => import('../screens/attendance/AttendanceCaptureScreen'));
@@ -25,9 +27,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export const AppNavigator = () => {
   const dispatch = useAppDispatch();
-  const { faceEnrollmentStatus, isAuthenticated, isRestoring, session } = useAppSelector(
-    state => state.auth,
-  );
+  const { isAuthenticated, isRestoring, session } = useAppSelector(state => state.auth);
   const isLocked = useAppSelector(state => state.security.isLocked);
   const preferences = useAppSelector(state => state.preferences);
   const colors = useAppColors();
@@ -39,19 +39,27 @@ export const AppNavigator = () => {
   useLocationIntegrityMonitor();
 
   useEffect(() => {
-    dispatch(restoreSession());
-    dispatch(restoreClient());
+    let cancelled = false;
+    const bootstrap = async () => {
+      await dispatch(restoreClient());
+      if (!cancelled) {
+        dispatch(restoreSession());
+      }
+    };
+    bootstrap().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [dispatch]);
+
+  useEffect(
+    () => authSessionEvents.subscribeUnauthorized(() => dispatch(invalidateSession())),
+    [dispatch],
+  );
 
   useEffect(() => {
     setLocale(preferences.locale);
   }, [preferences.locale]);
-
-  useEffect(() => {
-    if (isAuthenticated && session?.employee.id && faceEnrollmentStatus === 'unknown') {
-      dispatch(checkFaceEnrollment(session.employee.id));
-    }
-  }, [dispatch, faceEnrollmentStatus, isAuthenticated, session?.employee.id]);
 
   if (isRestoring || isClientRestoring) {
     return (
@@ -81,7 +89,9 @@ export const AppNavigator = () => {
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} backgroundColor={colors.surfaceMuted} />
       <Suspense fallback={<ActivityIndicator />}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {!isAuthenticated ? (
+          {session?.mustChangePassword ? (
+            <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+          ) : !isAuthenticated ? (
             selectedClient ? (
               <Stack.Screen name="Login" component={LoginScreen} />
             ) : (

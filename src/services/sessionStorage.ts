@@ -1,4 +1,5 @@
-import { createMMKV } from 'react-native-mmkv';
+import { createMMKV, deleteMMKV } from 'react-native-mmkv';
+import * as Keychain from 'react-native-keychain';
 import {
   ClientProfile,
   DeviceRegistration,
@@ -7,13 +8,29 @@ import {
   Session,
 } from '../types/domain';
 
-const storage = createMMKV({
-  id: 'secure-session',
-  encryptionKey: 'replace-with-native-keystore-managed-key',
-});
+// The previous namespace mixed bearer tokens with local UI state. Delete the
+// whole legacy file without opening/decrypting it, then start clean on the
+// non-secret v2 namespace. Users re-enter their client code once after upgrade.
+try {
+  deleteMMKV('secure-session');
+} catch {
+  // A missing legacy file is the normal case on fresh installs.
+}
+
+const storage = createMMKV({ id: 'app-local-state-v2' });
+const sessionKeychainService = 'com.frevone.hrms.session.v2';
+
+const persistSecureSession = (username: string, password: string) =>
+  Keychain.setGenericPassword(username, password, {
+    accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    service: sessionKeychainService,
+    // An ESS bearer session is an app-level secret and must not depend on a
+    // biometric prompt. Explicit AES-GCM also avoids device-specific fallback
+    // selection failures in the Android Keystore.
+    storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+  });
 
 const keys = {
-  session: 'session',
   selectedClient: 'selectedClient',
   faceEnrollmentPrefix: 'faceEnrollment:',
   faceImagePrefix: 'faceImage:',
@@ -26,16 +43,105 @@ const keys = {
   registeredEmployeeId: 'registeredEmployeeId',
 };
 
+type PersistedSession = Omit<Session, 'client'> & {
+  version: 2;
+  clientCode: string;
+};
+
+let sessionCache: Session | undefined;
+let sessionHydrated = false;
+
+const persistedSessionFor = (session: Session): PersistedSession => {
+  const { client, ...authSession } = session;
+  return {
+    ...authSession,
+    version: 2,
+    clientCode: client.code,
+  };
+};
+
+const resetSecureSession = async () => {
+  try {
+    await Keychain.resetGenericPassword({ service: sessionKeychainService });
+  } catch {
+    // The in-memory session is already cleared; a keychain cleanup failure
+    // must not keep Redux authenticated or block logout/navigation.
+  }
+};
+
 const scopedKey = (prefix: string, clientCode: string, employeeId: string) =>
   `${prefix}${clientCode}:${employeeId}`;
 
 export const sessionStorage = {
-  saveSession(session: Session) {
-    storage.set(keys.session, JSON.stringify(session));
+  async saveSession(session: Session) {
+    const serializedSession = JSON.stringify(persistedSessionFor(session));
+    let result: Awaited<ReturnType<typeof Keychain.setGenericPassword>>;
+    try {
+      result = await persistSecureSession(session.client.code, serializedSession);
+      if (!result) {
+        await resetSecureSession();
+        result = await persistSecureSession(session.client.code, serializedSession);
+      }
+    } catch {
+      // A corrupt/incompatible entry can survive an app upgrade. Remove it
+      // once and retry with the explicitly selected Android storage backend.
+      await resetSecureSession();
+      try {
+        result = await persistSecureSession(session.client.code, serializedSession);
+      } catch {
+        result = false;
+      }
+    }
+    if (!result) {
+      sessionCache = undefined;
+      sessionHydrated = true;
+      throw new Error('SESSION_SECURE_STORAGE_FAILED');
+    }
+    sessionCache = session;
+    sessionHydrated = true;
   },
   getSession(): Session | undefined {
-    const value = storage.getString(keys.session);
-    return value ? (JSON.parse(value) as Session) : undefined;
+    return sessionCache;
+  },
+  async hydrateSession(): Promise<Session | undefined> {
+    if (sessionHydrated) {
+      return sessionCache;
+    }
+    sessionHydrated = true;
+
+    try {
+      const credentials = await Keychain.getGenericPassword({ service: sessionKeychainService });
+      if (!credentials) {
+        return undefined;
+      }
+
+      const persisted = JSON.parse(credentials.password) as Partial<PersistedSession>;
+      const selectedClient = this.getSelectedClient();
+      if (
+        persisted.version !== 2 ||
+        !selectedClient ||
+        persisted.clientCode !== selectedClient.code ||
+        typeof persisted.accessToken !== 'string' ||
+        !persisted.accessToken.trim() ||
+        !persisted.employee
+      ) {
+        await resetSecureSession();
+        return undefined;
+      }
+
+      const authSession = { ...persisted };
+      delete authSession.version;
+      delete authSession.clientCode;
+      sessionCache = {
+        ...(authSession as Omit<Session, 'client'>),
+        client: selectedClient,
+      };
+      return sessionCache;
+    } catch {
+      sessionCache = undefined;
+      await resetSecureSession();
+      return undefined;
+    }
   },
   getToken() {
     return this.getSession()?.accessToken;
@@ -50,8 +156,10 @@ export const sessionStorage = {
   clearSelectedClient() {
     storage.remove(keys.selectedClient);
   },
-  clearSession() {
-    storage.remove(keys.session);
+  async clearSession() {
+    sessionCache = undefined;
+    sessionHydrated = true;
+    await resetSecureSession();
   },
   getOrCreateDeviceId() {
     const existingDeviceId = storage.getString(keys.deviceId);

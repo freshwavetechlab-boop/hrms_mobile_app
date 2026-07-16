@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -6,38 +6,35 @@ import {
   Camera,
   useCameraDevice,
   useCameraPermission,
-  usePhotoOutput,
 } from 'react-native-vision-camera';
 import {
   Camera as CameraIcon,
-  CheckCircle2,
   ChevronLeft,
   LocateFixed,
   MapPinOff,
   Satellite,
-  ScanFace,
   X,
 } from 'lucide-react-native';
 import { Card } from '../../components/layout/Card';
 import { IconBadge } from '../../components/layout/IconBadge';
 import { Screen } from '../../components/layout/Screen';
 import { PrimaryButton } from '../../components/forms/PrimaryButton';
+import { AppTextInput } from '../../components/forms/AppTextInput';
 import { RootStackParamList } from '../../navigation/types';
 import { MOCK_LOCATION_MESSAGE } from '../../services/locationIntegrityService';
 import { locationService } from '../../services/locationService';
 import { permissionService } from '../../services/permissionService';
-import { imageCompressionService } from '../../services/imageCompressionService';
-import { useAppDispatch, useAppSelector } from '../../store/hooks';
-import { checkFaceEnrollment } from '../../store/slices/authSlice';
+import { biometricService } from '../../services/biometricService';
+import { useAppDispatch } from '../../store/hooks';
 import { markAttendance } from '../../store/slices/attendanceSlice';
 import { useTranslation } from '../../localization/useTranslation';
 import { AppColors, colors } from '../../theme/colors';
-import { useAppColors, useThemedStyles } from '../../theme/useAppTheme';
+import { useThemedStyles } from '../../theme/useAppTheme';
 import { spacing } from '../../theme/spacing';
 import { typography } from '../../theme/typography';
 
 const backIcon = () => <ChevronLeft color={colors.primary} size={18} />;
-const captureIcon = () => <ScanFace color={colors.surface} size={18} />;
+const captureIcon = () => <CameraIcon color={colors.surface} size={18} />;
 const cameraIcon = () => <CameraIcon color={colors.surface} size={18} />;
 const gpsIcon = () => <Satellite color={colors.primary} size={18} />;
 
@@ -57,14 +54,16 @@ const AttendanceCaptureScreen = () => {
   const dispatch = useAppDispatch();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'AttendanceCapture'>>();
-  const employeeId = useAppSelector(state => state.auth.session?.employee.id);
   const { t } = useTranslation();
   const device = useCameraDevice('front');
-  const photoOutput = usePhotoOutput({ qualityPrioritization: 'quality' });
   const { canRequestPermission, hasPermission, requestPermission } = useCameraPermission();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [showGpsRecovery, setShowGpsRecovery] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isPreviewReady, setIsPreviewReady] = useState(false);
+  const [requiresReason, setRequiresReason] = useState(false);
+  const [outsideReason, setOutsideReason] = useState('');
 
   useEffect(() => {
     if (!showGpsRecovery) {
@@ -112,10 +111,20 @@ const AttendanceCaptureScreen = () => {
       Alert.alert(t('outsideOfficeTitle'), t('outsideOffice'));
       return;
     }
+    if (message === 'LOCATION_ACCURACY_LOW') {
+      Alert.alert(
+        'Improve GPS accuracy',
+        'Wait a few seconds in an open area, then retry when your phone has a stronger GPS fix.',
+      );
+      return;
+    }
     if (message === 'ATTENDANCE_REASON_REQUIRED') {
+      setRequiresReason(true);
+      setIsPreviewReady(false);
+      setIsCameraOpen(true);
       Alert.alert(
         'Reason required',
-        'Your attendance policy allows this location only with a reason. Please contact HR to enable the outside-office approval flow.',
+        'Your attendance policy allows this location with a reason. Enter the reason below, wait for the camera preview, and submit again.',
       );
       return;
     }
@@ -123,40 +132,59 @@ const AttendanceCaptureScreen = () => {
       Alert.alert('Already checked in', 'Your check-in is already recorded. Please use Check Out.');
       return;
     }
+    if (message === 'ALREADY_CHECKED_OUT') {
+      Alert.alert('Already checked out', 'Your check-out is already recorded for today.');
+      return;
+    }
     if (message === 'CHECK_IN_REQUIRED') {
       Alert.alert('Check-in required', 'Please record a valid check-in before checking out.');
       return;
     }
-    if (message === 'FACE_MISMATCH') {
-      Alert.alert('Face mismatch', t('faceMismatch'));
+    if (message === 'ATTENDANCE_APPROVAL_PENDING') {
+      Alert.alert(
+        'Approval pending',
+        'This attendance action is already waiting for approval.',
+      );
       return;
     }
-    if (message === 'FACE_NOT_REGISTERED') {
-      Alert.alert('Face registration required', 'Please register your face before marking attendance.', [
-        {
-          text: t('done'),
-          onPress: () => {
-            if (employeeId) {
-              dispatch(checkFaceEnrollment(employeeId));
-            }
-          },
-        },
-      ]);
+    if (message === 'ATTENDANCE_APPROVAL_UNAVAILABLE') {
+      Alert.alert(
+        'Move inside the office area',
+        'Outside-office approval is not configured yet. Move inside the allowed attendance area and retry.',
+      );
+      return;
+    }
+    if (message === 'ATTENDANCE_ACTION_NOT_ALLOWED') {
+      Alert.alert(
+        'Action not allowed',
+        'This attendance action is disabled by your attendance policy. Please contact HR.',
+      );
       return;
     }
     if (
-      message === 'FACE_MODEL_NOT_CONFIGURED' ||
-      message === 'FACE_API_NOT_CONFIGURED' ||
-      message === 'FACE_API_FAILED' ||
-      message === 'FACE_QUALITY_REJECTED'
+      message === 'ATTENDANCE_STATE_CONFLICT' ||
+      message === 'ATTENDANCE_REQUEST_CONFLICT' ||
+      message === 'ATTENDANCE_DEVICE_CONTEXT_REQUIRED' ||
+      message === 'ATTENDANCE_EMPLOYEE_NOT_FOUND' ||
+      message === 'ATTENDANCE_EMPLOYEE_INACTIVE'
     ) {
-      Alert.alert(t('faceModelRequiredTitle'), t('faceModelRequiredMessage'));
+      Alert.alert(
+        'Attendance setup issue',
+        'Your attendance profile needs correction. Please contact HR.',
+      );
+      return;
+    }
+    if (message === 'ATTENDANCE_CAMERA_REQUIRED') {
+      Alert.alert(
+        'Camera confirmation required',
+        'Open the front camera and wait for the preview before marking attendance.',
+      );
       return;
     }
     if (message === 'BIOMETRIC_NOT_ENROLLED') {
       Alert.alert(
-        t('biometricRequired'),
-        'Please configure biometric authentication in your phone settings.',
+        'Fingerprint not enrolled',
+        'Add a fingerprint in your phone settings, then retry attendance.',
       );
       return;
     }
@@ -164,7 +192,35 @@ const AttendanceCaptureScreen = () => {
       Alert.alert(t('biometricCancelled'), t('attendanceBiometricCancelled'));
       return;
     }
-
+    if (message === 'ATTENDANCE_BIOMETRIC_REQUIRED') {
+      Alert.alert(
+        'Biometric confirmation required',
+        'Confirm your fingerprint after the camera preview before submitting attendance.',
+      );
+      return;
+    }
+    if (message === 'ATTENDANCE_DATE_LOCKED') {
+      Alert.alert(
+        'Attendance already finalized',
+        'This date already contains leave, holiday, or weekly-off attendance. Contact HR if it needs correction.',
+      );
+      return;
+    }
+    if (message === 'ATTENDANCE_DEVICE_TIME_INVALID') {
+      Alert.alert(
+        'Correct device time',
+        'Enable automatic date and time on your phone, then retry attendance.',
+      );
+      return;
+    }
+    if (
+      message === 'ATTENDANCE_SERVER_ERROR' ||
+      message === 'ATTENDANCE_API_REJECTED' ||
+      message === 'ATTENDANCE_API_INVALID_RESPONSE'
+    ) {
+      Alert.alert(t('attendanceServiceUnavailable'), t('attendanceServiceUnavailableMessage'));
+      return;
+    }
     Alert.alert(
       t('attendanceFailed'),
       t('attendanceFailedMessage'),
@@ -172,19 +228,17 @@ const AttendanceCaptureScreen = () => {
   };
 
   const captureAttendance = async () => {
-    if (!isCameraOpen || !hasPermission || !device) {
+    if (submittingRef.current || !isCameraOpen || !isPreviewReady || !hasPermission || !device) {
       return;
     }
 
     try {
+      submittingRef.current = true;
       setIsSubmitting(true);
 
-      const photo = await photoOutput.capturePhotoToFile(
-        { flashMode: 'off', enableShutterSound: false },
-        {},
-      );
-      const compressedImageRef = await imageCompressionService.compressSelfie(photo.filePath);
       setIsCameraOpen(false);
+
+      await biometricService.authenticateForAttendance();
 
       const locationGranted = await permissionService.requestLocation();
       if (!locationGranted) {
@@ -212,20 +266,37 @@ const AttendanceCaptureScreen = () => {
         throw new Error('MOCK_LOCATION_DETECTED');
       }
 
-      await dispatch(
+      const savedAttendance = await dispatch(
         markAttendance({
           attendanceType: route.params.attendanceType,
-          imageRef: compressedImageRef,
+          cameraCaptureConfirmed: true,
+          biometricConfirmed: true,
           location,
+          reason: outsideReason,
         }),
       ).unwrap();
 
-      Alert.alert(t('attendanceSaved'), t('attendanceSavedMessage'), [
-        { text: t('done'), onPress: () => navigation.goBack() },
-      ]);
+      if (savedAttendance.attendanceStatus === 'Pending Approval') {
+        Alert.alert(
+          'Approval pending',
+          'Your attendance request was submitted and is waiting for approval.',
+          [{ text: t('done'), onPress: () => navigation.goBack() }],
+        );
+      } else if (savedAttendance.attendanceStatus === 'Pending Sync') {
+        Alert.alert(
+          'Saved on this device',
+          'Attendance is waiting to sync. Keep internet access on; the app will retry automatically.',
+          [{ text: t('done'), onPress: () => navigation.goBack() }],
+        );
+      } else {
+        Alert.alert(t('attendanceSaved'), t('attendanceSavedMessage'), [
+          { text: t('done'), onPress: () => navigation.goBack() },
+        ]);
+      }
     } catch (error) {
       showFailure(error);
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -243,6 +314,7 @@ const AttendanceCaptureScreen = () => {
       return;
     }
 
+    setIsPreviewReady(false);
     setIsCameraOpen(true);
   };
 
@@ -262,7 +334,13 @@ const AttendanceCaptureScreen = () => {
       <Card>
         <View style={styles.cameraFrame}>
           {isCameraOpen && hasPermission && device ? (
-            <Camera device={device} isActive outputs={[photoOutput]} style={styles.camera} />
+            <Camera
+              device={device}
+              isActive
+              onPreviewStarted={() => setIsPreviewReady(true)}
+              onPreviewStopped={() => setIsPreviewReady(false)}
+              style={styles.camera}
+            />
           ) : (
             <View style={styles.cameraFallback}>
               <IconBadge Icon={CameraIcon} tone="primary" />
@@ -271,20 +349,23 @@ const AttendanceCaptureScreen = () => {
             </View>
           )}
           <View style={styles.captureBadge}>
-            <ScanFace color={colors.surface} size={22} strokeWidth={2.4} />
+            <CameraIcon color={colors.surface} size={22} strokeWidth={2.4} />
           </View>
           {isCameraOpen ? (
             <Pressable
               accessibilityLabel={t('closeCamera')}
               accessibilityRole="button"
-              onPress={() => setIsCameraOpen(false)}
+              onPress={() => {
+                setIsPreviewReady(false);
+                setIsCameraOpen(false);
+              }}
               style={styles.closeCameraButton}>
               <X color={colors.surface} size={20} />
             </Pressable>
           ) : null}
         </View>
         <View style={styles.securityGrid}>
-          <SecurityItem Icon={ScanFace} title={t('selfieAudit')} value={t('backendCanVerifyFace')} />
+          <SecurityItem Icon={CameraIcon} title={t('selfieAudit')} value={t('backendCanVerifyFace')} />
           <SecurityItem Icon={LocateFixed} title={t('preciseGps')} value={t('officeRadiusValidated')} />
           <SecurityItem Icon={MapPinOff} title={t('mockGps')} value={t('flyGpsBlocked')} warning />
         </View>
@@ -300,9 +381,25 @@ const AttendanceCaptureScreen = () => {
             </PrimaryButton>
           </View>
         ) : null}
+        {requiresReason ? (
+          <AppTextInput
+            accessibilityLabel="Outside-office attendance reason"
+            autoCapitalize="sentences"
+            label="Reason for outside-office attendance"
+            multiline
+            onChangeText={setOutsideReason}
+            value={outsideReason}
+          />
+        ) : null}
         {isCameraOpen ? (
           <PrimaryButton
-            disabled={!hasPermission || !device}
+            disabled={
+              isSubmitting ||
+              !isPreviewReady ||
+              !hasPermission ||
+              !device ||
+              (requiresReason && outsideReason.trim().length < 3)
+            }
             icon={captureIcon}
             loading={isSubmitting}
             onPress={captureAttendance}>
@@ -329,7 +426,6 @@ const SecurityItem = ({
   value: string;
   warning?: boolean;
 }) => {
-  const themeColors = useAppColors();
   const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.securityItem}>
@@ -338,7 +434,6 @@ const SecurityItem = ({
         <Text style={styles.securityTitle}>{title}</Text>
         <Text style={styles.securityValue}>{value}</Text>
       </View>
-      {!warning ? <CheckCircle2 color={themeColors.success} size={16} /> : null}
     </View>
   );
 };

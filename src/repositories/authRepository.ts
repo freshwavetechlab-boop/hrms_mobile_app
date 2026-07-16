@@ -1,42 +1,75 @@
-import { demoEmployee } from '../constants/staticData';
 import { Session } from '../types/domain';
 import { clientRepository } from './clientRepository';
 import { authApiService } from '../services/authApiService';
 import { deviceRegistrationService } from '../services/deviceRegistrationService';
 import { essApiService } from '../services/essApiService';
 import { sessionStorage } from '../services/sessionStorage';
+import { getErrorMessage } from '../utils/errorMessage';
 
-const persistentSessionMs = 1000 * 60 * 60 * 24 * 365 * 10;
+const isRealAccessToken = (token?: string): token is string =>
+  Boolean(token?.trim() && !token.startsWith('demo-token-'));
+
+const hasEssAccess = (session: Session) =>
+  session.permissions?.some(permission => permission.toLowerCase() === 'ess.self') === true;
+
+const revokeAndClearSession = async (session?: Session) => {
+  const accessToken = session?.accessToken;
+  try {
+    if (isRealAccessToken(accessToken)) {
+      await authApiService.logout(accessToken);
+    }
+  } finally {
+    await sessionStorage.clearSession();
+  }
+};
+
+const isTransientValidationError = (error: unknown) =>
+  ['NETWORK_UNAVAILABLE', 'REQUEST_TIMEOUT', 'SERVER_UNAVAILABLE'].includes(
+    getErrorMessage(error),
+  );
 
 export const authRepository = {
   async login(identifier: string, password: string): Promise<Session> {
-    const employeeId = identifier.trim().toUpperCase();
     const client = sessionStorage.getSelectedClient();
     if (!client) {
       throw new Error('CLIENT_CODE_REQUIRED');
     }
-    if (essApiService.isConfigured()) {
-      const session = await authApiService.login({ client, identifier, password });
-      sessionStorage.saveSession(session);
-      try {
-        session.employee = await essApiService.getProfile(session.employee);
-      } catch {
-        // Login response already contains the user; profile refresh can retry after login.
-      }
-      try {
-        deviceRegistrationService.assertCanLogin(session.client.code, session.employee.id);
-      } catch (error) {
-        sessionStorage.clearSession();
-        throw error;
-      }
-      sessionStorage.saveSelectedClient(session.client);
-      sessionStorage.saveSession(session);
+
+    const session = await authApiService.login({ client, identifier, password });
+    // The profile endpoint needs the freshly issued bearer token. Persist it
+    // only for this mandatory validation window and remove it on any failure.
+    try {
+      await sessionStorage.saveSession(session);
+    } catch (error) {
+      await revokeAndClearSession(session);
+      throw error;
+    }
+    sessionStorage.saveSelectedClient(session.client);
+    if (session.mustChangePassword) {
       return session;
     }
+    try {
+      session.employee = await essApiService.getProfile(session.employee);
+      if (!session.employee.id.trim() || !session.employee.email.trim()) {
+        throw new Error('ESS_PROFILE_INVALID');
+      }
+      session.profileValidatedAt = Date.now();
+    } catch (error) {
+      await revokeAndClearSession(session);
+      if (isTransientValidationError(error)) {
+        throw error;
+      }
+      throw new Error('ESS_PROFILE_REQUIRED');
+    }
 
-    deviceRegistrationService.assertCanLogin(client.code, employeeId);
-    const session = this.createSession(client, employeeId, password.length);
-    sessionStorage.saveSession(session);
+    try {
+      deviceRegistrationService.assertCanLogin(session.client.code, session.employee.id);
+    } catch (error) {
+      await revokeAndClearSession(session);
+      throw error;
+    }
+    sessionStorage.saveSelectedClient(session.client);
+    await sessionStorage.saveSession(session);
     return session;
   },
   async loginWithBiometric(): Promise<Session> {
@@ -46,44 +79,100 @@ export const authRepository = {
     }
     const registration = deviceRegistrationService.assertCanUseBiometricLogin(client.code);
     const restoredSession = sessionStorage.getSession();
-    if (essApiService.isConfigured()) {
-      if (restoredSession?.accessToken && restoredSession.employee.id === registration.employeeId) {
-        return restoredSession;
-      }
+    if (
+      !restoredSession ||
+      !isRealAccessToken(restoredSession.accessToken) ||
+      restoredSession.mustChangePassword ||
+      !restoredSession.hrmsClientId ||
+      !restoredSession.hrmsEmployeeId ||
+      !restoredSession.profileValidatedAt ||
+      !hasEssAccess(restoredSession) ||
+      restoredSession.client.code !== client.code ||
+      restoredSession.employee.id !== registration.employeeId
+    ) {
+      await sessionStorage.clearSession();
       throw new Error('BIOMETRIC_LOGIN_NOT_REGISTERED');
     }
 
-    const session = this.createSession(client, registration.employeeId, 0);
-    sessionStorage.saveSession(session);
-    return session;
+    try {
+      restoredSession.employee = await essApiService.getProfile(restoredSession.employee);
+      if (!restoredSession.employee.id.trim() || !restoredSession.employee.email.trim()) {
+        throw new Error('ESS_PROFILE_INVALID');
+      }
+      restoredSession.profileValidatedAt = Date.now();
+      await sessionStorage.saveSession(restoredSession);
+      return restoredSession;
+    } catch {
+      await revokeAndClearSession(restoredSession);
+      throw new Error('ESS_PROFILE_REQUIRED');
+    }
   },
-  createSession(client: Session['client'], employeeId: string, passwordLength: number): Session {
-    const session: Session = {
-      accessToken: `demo-token-${client.code}-${employeeId}-${passwordLength}`,
-      refreshToken: undefined,
-      expiresAt: Date.now() + persistentSessionMs,
-      client,
-      employee: {
-        ...demoEmployee,
-        id: employeeId,
-        email: `${employeeId.toLowerCase()}@${client.code.toLowerCase()}.example`,
-      },
-    };
-    return session;
-  },
-  restoreSession() {
-    const session = sessionStorage.getSession();
-    if (session && session.expiresAt <= Date.now()) {
-      sessionStorage.clearSession();
+  async restoreSession() {
+    const session = await sessionStorage.hydrateSession();
+    if (
+      session &&
+      (!isRealAccessToken(session.accessToken) ||
+        !session.hrmsClientId ||
+        !session.hrmsEmployeeId ||
+        (!session.mustChangePassword && !session.profileValidatedAt) ||
+        !session.employee?.id ||
+        !hasEssAccess(session))
+    ) {
+      await sessionStorage.clearSession();
       return undefined;
     }
     if (session && (!session.client || !clientRepository.isApprovedClientCode(session.client.code))) {
-      sessionStorage.clearSession();
+      await sessionStorage.clearSession();
       return undefined;
     }
-    return session;
+    if (!session) {
+      return undefined;
+    }
+
+    try {
+      session.mustChangePassword = await authApiService.validateSession(session);
+      if (session.mustChangePassword) {
+        session.profileValidatedAt = undefined;
+      }
+      await sessionStorage.saveSession(session);
+      return session;
+    } catch (error) {
+      if (isTransientValidationError(error)) {
+        return session;
+      }
+      await sessionStorage.clearSession();
+      return undefined;
+    }
   },
-  logout() {
-    sessionStorage.clearSession();
+  async changePassword(currentPassword: string, newPassword: string): Promise<Session> {
+    const session = sessionStorage.getSession();
+    if (!session || !isRealAccessToken(session.accessToken)) {
+      throw new Error('SESSION_EXPIRED');
+    }
+
+    await authApiService.changePassword(session.accessToken, currentPassword, newPassword);
+    session.mustChangePassword = false;
+    await sessionStorage.saveSession(session);
+
+    try {
+      session.employee = await essApiService.getProfile(session.employee);
+      if (!session.employee.id.trim() || !session.employee.email.trim()) {
+        throw new Error('ESS_PROFILE_INVALID');
+      }
+      session.profileValidatedAt = Date.now();
+      deviceRegistrationService.assertCanLogin(session.client.code, session.employee.id);
+      sessionStorage.saveSelectedClient(session.client);
+      await sessionStorage.saveSession(session);
+      return session;
+    } catch (error) {
+      await revokeAndClearSession(session);
+      if (isTransientValidationError(error)) {
+        throw error;
+      }
+      throw new Error('ESS_PROFILE_REQUIRED');
+    }
+  },
+  async logout() {
+    await revokeAndClearSession(sessionStorage.getSession());
   },
 };

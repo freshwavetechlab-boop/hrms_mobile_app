@@ -1,11 +1,12 @@
 import React, { lazy, Suspense } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ActivityIndicator } from 'react-native-paper';
 import { CalendarCheck, Grid3X3, Home, LucideIcon, UserRound, ClipboardList } from 'lucide-react-native';
 import { MainTabParamList } from './types';
 import { useTranslation } from '../localization/useTranslation';
 import { useAppColors } from '../theme/useAppTheme';
+import { AuthenticatedHeader } from '../components/layout/AuthenticatedHeader';
 
 const DashboardScreen = lazy(() => import('../screens/dashboard/DashboardScreen'));
 const AttendanceScreen = lazy(() => import('../screens/attendance/AttendanceScreen'));
@@ -44,51 +45,57 @@ export const MainTabs = () => {
   const colors = useAppColors();
 
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          height: 72,
-          minHeight: 72,
-          paddingBottom: 8,
-          paddingTop: 8,
-        },
-        tabBarItemStyle: styles.tabItem,
-      }}>
-      <Tab.Screen
-        name="Home"
-        component={withSuspense(DashboardScreen)}
-        options={{ title: t('dashboard'), tabBarIcon: tabIcon(Home), tabBarLabel: tabLabel(t('dashboard')) }}
-      />
-      <Tab.Screen
-        name="Attendance"
-        component={withSuspense(AttendanceScreen)}
-        options={{ title: t('attendance'), tabBarIcon: tabIcon(CalendarCheck), tabBarLabel: tabLabel(t('attendance')) }}
-      />
-      <Tab.Screen
-        name="Requests"
-        component={withSuspense(RequestsScreen)}
-        options={{ title: t('requests'), tabBarIcon: tabIcon(ClipboardList), tabBarLabel: tabLabel(t('requests')) }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={withSuspense(ProfileScreen)}
-        options={{ title: t('profile'), tabBarIcon: tabIcon(UserRound), tabBarLabel: tabLabel(t('profile')) }}
-      />
-      <Tab.Screen
-        name="More"
-        component={withSuspense(MoreScreen)}
-        options={{ title: t('more'), tabBarIcon: tabIcon(Grid3X3), tabBarLabel: tabLabel(t('more')) }}
-      />
-    </Tab.Navigator>
+    <View style={styles.container}>
+      <AuthenticatedHeader />
+      <Tab.Navigator
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.textMuted,
+          tabBarStyle: {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.border,
+            height: 72,
+            minHeight: 72,
+            paddingBottom: 8,
+            paddingTop: 8,
+          },
+          tabBarItemStyle: styles.tabItem,
+        }}>
+        <Tab.Screen
+          name="Home"
+          component={withSuspense(DashboardScreen)}
+          options={{ title: t('dashboard'), tabBarIcon: tabIcon(Home), tabBarLabel: tabLabel(t('dashboard')) }}
+        />
+        <Tab.Screen
+          name="Attendance"
+          component={withSuspense(AttendanceScreen)}
+          options={{ title: t('attendance'), tabBarIcon: tabIcon(CalendarCheck), tabBarLabel: tabLabel(t('attendance')) }}
+        />
+        <Tab.Screen
+          name="Requests"
+          component={withSuspense(RequestsScreen)}
+          options={{ title: t('requests'), tabBarIcon: tabIcon(ClipboardList), tabBarLabel: tabLabel(t('requests')) }}
+        />
+        <Tab.Screen
+          name="Profile"
+          component={withSuspense(ProfileScreen)}
+          options={{ title: t('profile'), tabBarIcon: tabIcon(UserRound), tabBarLabel: tabLabel(t('profile')) }}
+        />
+        <Tab.Screen
+          name="More"
+          component={withSuspense(MoreScreen)}
+          options={{ title: t('more'), tabBarIcon: tabIcon(Grid3X3), tabBarLabel: tabLabel(t('more')) }}
+        />
+      </Tab.Navigator>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   tabItem: {
     paddingHorizontal: 2,
   },

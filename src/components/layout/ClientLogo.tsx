@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { getClientLogo } from '../../assets/clientLogos';
 import { ClientBranding } from '../../types/domain';
 import { AppColors } from '../../theme/colors';
@@ -9,11 +9,14 @@ import { typography } from '../../theme/typography';
 type Props = {
   branding?: ClientBranding;
   size?: 'sm' | 'md' | 'lg';
+  style?: StyleProp<ViewStyle>;
   wide?: boolean;
 };
 
-export const ClientLogo = ({ branding, size = 'md', wide = false }: Props) => {
-  const source = getClientLogo(branding?.logoKey);
+export const ClientLogo = ({ branding, size = 'md', style, wide = false }: Props) => {
+  const source = branding?.logoDataUrl
+    ? { uri: branding.logoDataUrl }
+    : getClientLogo(branding?.logoKey);
   const styles = useThemedStyles(createStyles);
 
   return (
@@ -26,6 +29,7 @@ export const ClientLogo = ({ branding, size = 'md', wide = false }: Props) => {
         size === 'md' ? styles.medium : undefined,
         size === 'lg' ? styles.large : undefined,
         wide ? styles.wide : undefined,
+        style,
       ]}>
       {source ? (
         <Image resizeMode="contain" source={source} style={styles.image} />

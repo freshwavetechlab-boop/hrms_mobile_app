@@ -13,6 +13,10 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Stat
     return { hasError: true };
   }
 
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('Unhandled app render error', error, info.componentStack);
+  }
+
   render() {
     if (this.state.hasError) {
       return (

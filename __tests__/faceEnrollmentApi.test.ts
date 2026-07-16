@@ -15,6 +15,13 @@ jest.mock('../src/services/imageCompressionService', () => ({
   },
 }));
 
+jest.mock('../src/services/sessionStorage', () => ({
+  sessionStorage: {
+    getSelectedClient: () => ({ apiBaseUrl: 'http://resolved-tenant.example' }),
+    getSession: () => undefined,
+  },
+}));
+
 const captures: FaceRegistrationCapture[] = [
   { angle: 'RIGHT', imageRef: '/tmp/right.jpg', capturedAt: '2026-07-13T10:02:00Z' },
   { angle: 'FRONT', imageRef: '/tmp/front.jpg', capturedAt: '2026-07-13T10:00:00Z' },

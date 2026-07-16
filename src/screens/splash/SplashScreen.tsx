@@ -11,9 +11,8 @@ const SplashScreen = () => (
     <View accessibilityLabel="Company logo" style={styles.logo}>
       <Text style={styles.logoText}>HR</Text>
     </View>
-    <Text style={styles.title}>{APP_CONFIG.companyName}</Text>
+    <Text style={styles.title}>{APP_CONFIG.name}</Text>
     <ActivityIndicator accessibilityLabel="Loading application" />
-    <Text style={styles.version}>Version {APP_CONFIG.version}</Text>
   </View>
 );
 
@@ -40,10 +39,6 @@ const styles = StyleSheet.create({
   title: {
     ...typography.title,
     color: colors.text,
-  },
-  version: {
-    ...typography.caption,
-    color: colors.textMuted,
   },
 });
 

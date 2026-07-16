@@ -20,7 +20,7 @@ const initialState: AuthState = {
 };
 
 export const restoreSession = createAsyncThunk('auth/restore', async () => {
-  const session = authRepository.restoreSession();
+  const session = await authRepository.restoreSession();
   return session;
 });
 
@@ -35,8 +35,14 @@ export const loginWithBiometric = createAsyncThunk('auth/loginWithBiometric', as
 );
 
 export const logout = createAsyncThunk('auth/logout', async () => {
-  authRepository.logout();
+  await authRepository.logout();
 });
+
+export const changePassword = createAsyncThunk(
+  'auth/changePassword',
+  async ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) =>
+    authRepository.changePassword(currentPassword, newPassword),
+);
 
 export const checkFaceEnrollment = createAsyncThunk(
   'auth/checkFaceEnrollment',
@@ -52,18 +58,34 @@ export const enrollFace = createAsyncThunk(
 const authSlice = createSlice({
   name: 'auth',
   initialState,
-  reducers: {},
+  reducers: {
+    invalidateSession(state) {
+      state.session = undefined;
+      state.isAuthenticated = false;
+      state.faceEnrollmentStatus = 'unknown';
+      state.error = undefined;
+    },
+  },
   extraReducers: builder => {
     builder
       .addCase(restoreSession.fulfilled, (state, action) => {
         state.session = action.payload;
-        state.isAuthenticated = Boolean(action.payload);
+        state.isAuthenticated = Boolean(action.payload && !action.payload.mustChangePassword);
         state.isRestoring = false;
-        state.faceEnrollmentStatus = action.payload ? 'unknown' : 'required';
+        state.faceEnrollmentStatus = action.payload && !action.payload.mustChangePassword
+          ? 'unknown'
+          : 'required';
+      })
+      .addCase(restoreSession.rejected, (state, action) => {
+        state.session = undefined;
+        state.isAuthenticated = false;
+        state.isRestoring = false;
+        state.faceEnrollmentStatus = 'required';
+        state.error = action.error.message;
       })
       .addCase(login.fulfilled, (state, action) => {
         state.session = action.payload;
-        state.isAuthenticated = true;
+        state.isAuthenticated = !action.payload.mustChangePassword;
         state.faceEnrollmentStatus = 'unknown';
         state.error = undefined;
       })
@@ -84,6 +106,15 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         state.faceEnrollmentStatus = 'unknown';
       })
+      .addCase(changePassword.fulfilled, (state, action) => {
+        state.session = action.payload;
+        state.isAuthenticated = true;
+        state.faceEnrollmentStatus = 'unknown';
+        state.error = undefined;
+      })
+      .addCase(changePassword.rejected, (state, action) => {
+        state.error = action.error.message;
+      })
       .addCase(checkFaceEnrollment.pending, state => {
         state.faceEnrollmentStatus = 'checking';
       })
@@ -99,4 +130,5 @@ const authSlice = createSlice({
   },
 });
 
+export const { invalidateSession } = authSlice.actions;
 export default authSlice.reducer;

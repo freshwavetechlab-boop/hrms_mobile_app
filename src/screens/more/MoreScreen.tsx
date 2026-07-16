@@ -1,27 +1,11 @@
 import React from 'react';
 import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
-import {
-  Bell,
-  FileArchive,
-  FileText,
-  GraduationCap,
-  Info,
-  LockKeyhole,
-  LogOut,
-  ScrollText,
-  Shield,
-  Target,
-  Users,
-  WalletCards,
-} from 'lucide-react-native';
-import { ActionTile } from '../../components/layout/ActionTile';
+import { LogOut, Shield } from 'lucide-react-native';
 import { Card } from '../../components/layout/Card';
 import { IconBadge } from '../../components/layout/IconBadge';
 import { Screen } from '../../components/layout/Screen';
 import { SectionHeader } from '../../components/layout/SectionHeader';
 import { PrimaryButton } from '../../components/forms/PrimaryButton';
-import { APP_CONFIG } from '../../constants/app';
-import { staticModules } from '../../constants/staticData';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { logout } from '../../store/slices/authSlice';
 import { setDarkMode } from '../../store/slices/preferencesSlice';
@@ -38,14 +22,6 @@ const MoreScreen = () => {
   const colors = useAppColors();
   const styles = useThemedStyles(createStyles);
   const logoutIcon = () => <LogOut color={colors.primary} size={18} />;
-  const moduleIcons = [
-    WalletCards,
-    FileArchive,
-    Users,
-    GraduationCap,
-    Target,
-    Bell,
-  ];
 
   const onLogout = () => {
     Alert.alert(t('logoutTitle'), t('logoutMessage'), [
@@ -62,18 +38,7 @@ const MoreScreen = () => {
   };
 
   return (
-    <Screen>
-      <SectionHeader title={t('modules')} />
-      <View style={styles.moduleGrid}>
-        {staticModules.slice(8).map((item, index) => (
-          <ActionTile
-            Icon={moduleIcons[index] ?? FileText}
-            key={item}
-            title={item}
-            tone={index % 2 === 0 ? 'primary' : 'accent'}
-          />
-        ))}
-      </View>
+    <Screen includeTopInset={false}>
       <SectionHeader title={t('settings')} />
       <Card>
         <View style={styles.settingRow}>
@@ -91,28 +56,6 @@ const MoreScreen = () => {
             value={preferences.darkMode}
           />
         </View>
-        <View style={styles.divider} />
-        <View style={styles.settingRow}>
-          <View style={styles.settingLabel}>
-            <IconBadge Icon={LockKeyhole} tone="primary" size={16} />
-            <Text style={styles.item}>{t('privacyPolicy')}</Text>
-          </View>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.settingRow}>
-          <View style={styles.settingLabel}>
-            <IconBadge Icon={ScrollText} tone="accent" size={16} />
-            <Text style={styles.item}>{t('terms')}</Text>
-          </View>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.settingRow}>
-          <View style={styles.settingLabel}>
-            <IconBadge Icon={Info} tone="secondary" size={16} />
-            <Text style={styles.item}>{t('version')}</Text>
-          </View>
-          <Text style={styles.meta}>{APP_CONFIG.version}</Text>
-        </View>
       </Card>
       <PrimaryButton icon={logoutIcon} mode="outlined" onPress={onLogout}>
         {t('logout')}
@@ -122,21 +65,12 @@ const MoreScreen = () => {
 };
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-  moduleGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
   item: {
     ...typography.body,
     color: colors.text,
     flexShrink: 1,
     minHeight: 44,
     textAlignVertical: 'center',
-  },
-  meta: {
-    ...typography.body,
-    color: colors.textMuted,
   },
   settingRow: {
     alignItems: 'center',
@@ -149,10 +83,6 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.md,
-  },
-  divider: {
-    backgroundColor: colors.border,
-    height: StyleSheet.hairlineWidth,
   },
 });
 

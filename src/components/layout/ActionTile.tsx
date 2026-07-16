@@ -14,12 +14,25 @@ type Props = {
   Icon: LucideIcon;
   tone?: React.ComponentProps<typeof IconBadge>['tone'];
   onPress?: () => void;
+  disabled?: boolean;
 };
 
-export const ActionTile = ({ title, subtitle, Icon, tone = 'primary', onPress }: Props) => {
+export const ActionTile = ({
+  title,
+  subtitle,
+  Icon,
+  tone = 'primary',
+  onPress,
+  disabled = false,
+}: Props) => {
   const styles = useThemedStyles(createStyles);
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.tile}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.tile, disabled ? styles.disabled : undefined]}>
       <IconBadge Icon={Icon} tone={tone} size={18} />
       <View style={styles.textWrap}>
         <Text adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1} style={styles.title}>
@@ -43,6 +56,9 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     minHeight: TOUCH_TARGET + 40,
     padding: spacing.md,
     width: '48%',
+  },
+  disabled: {
+    opacity: 0.55,
   },
   textWrap: {
     flex: 1,

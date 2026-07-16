@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Avatar } from 'react-native-paper';
-import { BriefcaseBusiness, GraduationCap, IdCard, Mail, Phone, UserRoundCheck, Users } from 'lucide-react-native';
+import { BriefcaseBusiness, CalendarDays, IdCard, Mail, MapPin, Users } from 'lucide-react-native';
 import { Card } from '../../components/layout/Card';
 import { IconBadge } from '../../components/layout/IconBadge';
 import { Screen } from '../../components/layout/Screen';
@@ -12,6 +12,7 @@ import { AppColors } from '../../theme/colors';
 import { useThemedStyles } from '../../theme/useAppTheme';
 import { spacing } from '../../theme/spacing';
 import { typography } from '../../theme/typography';
+import { EmployeeDocumentsSection } from '../../components/profile/EmployeeDocumentsSection';
 
 const ProfileScreen = () => {
   const styles = useThemedStyles(createStyles);
@@ -19,7 +20,7 @@ const ProfileScreen = () => {
   const { t } = useTranslation();
 
   return (
-    <Screen>
+    <Screen includeTopInset={false}>
       <Card>
         <View style={styles.header}>
           <Avatar.Text label={employee?.name.slice(0, 2).toUpperCase() ?? 'HR'} size={64} />
@@ -37,15 +38,12 @@ const ProfileScreen = () => {
         <Info Icon={BriefcaseBusiness} label={t('department')} value={employee?.department} />
         <Info Icon={Mail} label={t('email')} value={employee?.email} />
         <Info Icon={Users} label={t('reportingManager')} value={employee?.manager} />
-        <Info Icon={Phone} label={t('emergencyContact')} value="+91 98765 43210" />
+        <Info Icon={CalendarDays} label={t('dateOfJoining')} value={employee?.dateOfJoining} />
+        <Info Icon={MapPin} label={t('workLocation')} value={employee?.workLocation} />
+        <Info Icon={MapPin} label={t('attendanceOffice')} value={employee?.attendanceOffice} />
       </Card>
-      <SectionHeader title={t('skillsAndDocuments')} />
-      <Card>
-        <Info Icon={UserRoundCheck} label={t('skills')} value={t('skillsValue')} />
-        <Info Icon={GraduationCap} label={t('education')} value={t('educationValue')} />
-        <Info Icon={BriefcaseBusiness} label={t('experience')} value={t('experienceValue')} />
-        <Info Icon={IdCard} label={t('documents')} value={t('documentsValue')} />
-      </Card>
+      <SectionHeader title={t('documents')} />
+      <EmployeeDocumentsSection />
     </Screen>
   );
 };
@@ -60,6 +58,9 @@ const Info = ({
   value?: string;
 }) => {
   const styles = useThemedStyles(createStyles);
+  if (!value?.trim()) {
+    return null;
+  }
   return (
     <View style={styles.infoRow}>
       <IconBadge Icon={Icon} tone="primary" size={16} />

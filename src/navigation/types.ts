@@ -4,6 +4,7 @@ export type RootStackParamList = {
   Splash: undefined;
   ClientCode: undefined;
   Login: undefined;
+  ChangePassword: undefined;
   FaceEnrollment: undefined;
   AttendanceCapture: { attendanceType: AttendanceType };
   AppLock: undefined;

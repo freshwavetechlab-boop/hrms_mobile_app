@@ -20,9 +20,16 @@ export const useNetworkMonitor = () => {
 
       if (isOnline) {
         dispatch(setSyncing(true));
-        await attendanceRepository.syncPending();
-        dispatch(setLastSyncedAt(new Date().toISOString()));
-        dispatch(setSyncing(false));
+        try {
+          const syncedCount = await attendanceRepository.syncPending();
+          if (syncedCount > 0) {
+            dispatch(setLastSyncedAt(new Date().toISOString()));
+          }
+        } catch {
+          // Pending rows retain their status and will retry on the next network event.
+        } finally {
+          dispatch(setSyncing(false));
+        }
       }
     });
 

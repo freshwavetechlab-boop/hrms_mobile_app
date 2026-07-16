@@ -5,14 +5,22 @@ import 'react-native-gesture-handler/jestSetup';
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
 
 jest.mock('react-native-mmkv', () => {
-  const values = new Map();
+  const stores = new Map();
   return {
-    createMMKV: () => ({
-      set: (key, value) => values.set(key, value),
-      getString: key => values.get(key),
-      getBoolean: key => values.get(key),
-      remove: key => values.delete(key),
-    }),
+    deleteMMKV: id => stores.delete(id),
+    createMMKV: options => {
+      const id = options?.id ?? 'default';
+      const values = stores.get(id) ?? new Map();
+      stores.set(id, values);
+      return {
+        set: (key, value) => values.set(key, value),
+        getString: key => (typeof values.get(key) === 'string' ? values.get(key) : undefined),
+        getBoolean: key => (typeof values.get(key) === 'boolean' ? values.get(key) : undefined),
+        getAllKeys: () => Array.from(values.keys()),
+        clearAll: () => values.clear(),
+        remove: key => values.delete(key),
+      };
+    },
   };
 });
 
@@ -41,6 +49,9 @@ jest.mock('react-native-biometrics', () =>
 jest.mock('react-native-keychain', () => ({
   ACCESSIBLE: {
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WhenUnlockedThisDeviceOnly',
+  },
+  STORAGE_TYPE: {
+    AES_GCM_NO_AUTH: 'KeystoreAESGCM_NoAuth',
   },
   setGenericPassword: jest.fn(() => Promise.resolve({ service: 'test', storage: 'test' })),
   getGenericPassword: jest.fn(() => Promise.resolve(false)),

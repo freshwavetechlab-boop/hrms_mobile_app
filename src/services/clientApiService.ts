@@ -47,14 +47,28 @@ const toNumber = (value: unknown) => {
   return Number.isFinite(number) ? number : undefined;
 };
 
-const brandingFor = (code: string): ClientProfile['branding'] => ({
+const brandingFor = (code: string, logoDataUrl?: string): ClientProfile['branding'] => ({
   primaryColor: '#062B6F',
   accentColor: '#13BFA6',
   logoInitials: code.slice(0, 3),
-  logoKey: code === 'GAD' || code === 'GADIGITAL' ? 'gaDigital' : 'frevone',
+  logoDataUrl,
 });
 
-const clientNameFor = (code: string) => (code === 'GAD' ? 'GA Digital' : code);
+const getOrganizationBrand = async (apiBaseUrl: string) => {
+  try {
+    const response = await tenantResolverClient.get(
+      `${apiBaseUrl}/api/public/organization-brand`,
+    );
+    const payload = unwrapObject(response.data);
+    const logoDataUrl = getString(payload, ['logoDataUrl', 'LogoDataUrl']);
+    return {
+      name: getString(payload, ['name', 'Name', 'organizationName', 'OrganizationName']),
+      logoDataUrl: logoDataUrl.startsWith('data:image/') ? logoDataUrl : undefined,
+    };
+  } catch {
+    return { name: '', logoDataUrl: undefined };
+  }
+};
 
 const normalizeApiBaseUrl = (value: string) => {
   try {
@@ -123,20 +137,22 @@ export const clientApiService = {
         throw new Error('INVALID_CLIENT_CODE');
       }
       assertValidTenantWindow(validFromUtc, validUntilUtc);
+      const organizationBrand = await getOrganizationBrand(apiBaseUrl);
 
       return {
         id: toNumber(getValue(payload, ['id', 'Id', 'clientId', 'ClientId', 'client_id'])),
         code,
         name:
           getString(payload, ['name', 'Name', 'clientName', 'ClientName', 'client_name']) ||
-          clientNameFor(code),
+          organizationBrand.name ||
+          code,
         supportEmail: getString(payload, ['email', 'Email', 'supportEmail', 'SupportEmail', 'support_email']),
         apiBaseUrl,
         validFromUtc,
         validUntilUtc,
         isActive: true,
         validatedAt: new Date().toISOString(),
-        branding: brandingFor(code),
+        branding: brandingFor(code, organizationBrand.logoDataUrl),
       };
     } catch (error) {
       throw normalizeTenantResolutionError(error);
