@@ -8,6 +8,7 @@ import {
   AttendanceTodayState,
   AttendanceType,
   Employee,
+  EmployeeSelfProfile,
   FaceRegistrationCapture,
   Holiday,
   LeaveApplication,
@@ -16,6 +17,7 @@ import {
   LeaveType,
   Payslip,
   PayslipDocument,
+  SaveEmployeeSelfProfileRequest,
 } from '../types/domain';
 import { createId } from '../utils/id';
 import { apiClient } from './apiClient';
@@ -52,6 +54,21 @@ const getString = (source: ApiObject, keys: string[], fallback = '') => {
     const value = source[key];
     if (typeof value === 'string' && value.trim()) {
       return value;
+    }
+    if (typeof value === 'number') {
+      return String(value);
+    }
+  }
+  return fallback;
+};
+
+// Editable fields are allowed to be cleared. Unlike getString(), this helper
+// returns the first string property even when its value is empty.
+const getEditableString = (source: ApiObject, keys: string[], fallback = '') => {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string') {
+      return value.trim();
     }
     if (typeof value === 'number') {
       return String(value);
@@ -168,6 +185,97 @@ const mapEmployee = (payload: unknown, fallback: Employee): Employee => {
     attendanceOffice: getString(source, ['attendanceOffice', 'geoFenceOffice', 'officeLocation'], fallback.attendanceOffice),
     avatarUrl: getString(source, ['avatarUrl', 'profileImage', 'photoUrl'], fallback.avatarUrl),
   };
+};
+
+const mapEmployeeSelfProfile = (payload: unknown): EmployeeSelfProfile => {
+  if (!isObject(payload)) {
+    throw new Error('ESS_PROFILE_INVALID');
+  }
+
+  return {
+    clientId: getNumber(payload, ['clientId', 'ClientId']),
+    employeeCode: getEditableString(payload, ['employeeCode', 'EmployeeCode']),
+    firstName: getEditableString(payload, ['firstName', 'FirstName']),
+    lastName: getEditableString(payload, ['lastName', 'LastName']),
+    workEmail: getEditableString(payload, ['workEmail', 'WorkEmail']),
+    dateOfBirth: getEditableString(payload, ['dateOfBirth', 'DateOfBirth']).slice(0, 10),
+    mobile: getEditableString(payload, ['mobile', 'Mobile']),
+    panNumber: getEditableString(payload, ['panNumber', 'PanNumber']),
+    aadhaarNumber: getEditableString(payload, ['aadhaarNumber', 'AadhaarNumber']),
+    address: getEditableString(payload, ['address', 'Address']),
+    correspondenceAddress: getEditableString(
+      payload,
+      ['correspondenceAddress', 'CorrespondenceAddress'],
+    ),
+    permanentAddress: getEditableString(payload, ['permanentAddress', 'PermanentAddress']),
+    city: getEditableString(payload, ['city', 'City']),
+    district: getEditableString(payload, ['district', 'District']),
+    state: getEditableString(payload, ['state', 'State']),
+    bankName: getEditableString(payload, ['bankName', 'BankName']),
+    bankAccountNo: getEditableString(payload, ['bankAccountNo', 'BankAccountNo']),
+    ifscCode: getEditableString(payload, ['ifscCode', 'IfscCode']),
+    paymentMode: getEditableString(payload, ['paymentMode', 'PaymentMode']),
+    department: getEditableString(payload, ['department', 'Department']),
+    designation: getEditableString(payload, ['designation', 'Designation']),
+    dateOfJoining: getEditableString(payload, ['dateOfJoining', 'DateOfJoining']).slice(0, 10),
+    workLocation: getEditableString(payload, ['workLocation', 'WorkLocation']),
+    attendanceOffice: getEditableString(payload, ['attendanceOffice', 'AttendanceOffice']),
+    reportingManager: getEditableString(payload, ['reportingManager', 'ReportingManager']),
+    canEdit: getBoolean(payload, ['canEdit', 'CanEdit']),
+    travelExpenseEnabled: getBoolean(
+      payload,
+      ['travelExpenseEnabled', 'TravelExpenseEnabled'],
+    ),
+  };
+};
+
+export const employeeFromSelfProfile = (
+  profile: EmployeeSelfProfile,
+  fallback: Employee,
+): Employee => ({
+  ...fallback,
+  id: profile.employeeCode || fallback.id,
+  name: [profile.firstName, profile.lastName].filter(Boolean).join(' ') || fallback.name,
+  email: profile.workEmail,
+  department: profile.department,
+  designation: profile.designation,
+  manager: profile.reportingManager,
+  dateOfJoining: profile.dateOfJoining,
+  workLocation: profile.workLocation,
+  attendanceOffice: profile.attendanceOffice,
+});
+
+const normalizeProfileApiError = (error: unknown, operation: 'load' | 'save') => {
+  if (!axios.isAxiosError(error)) {
+    return error;
+  }
+  if (error.code === 'ECONNABORTED') {
+    return new Error('REQUEST_TIMEOUT');
+  }
+  if (!error.response) {
+    return new Error('NETWORK_UNAVAILABLE');
+  }
+
+  const status = error.response.status;
+  const payload = error.response.data;
+  const message = isObject(payload)
+    ? getString(payload, ['error', 'message', 'detail'])
+    : typeof payload === 'string'
+      ? payload
+      : '';
+  const normalized = message.toLowerCase();
+
+  if (status === 401) return new Error('SESSION_EXPIRED');
+  if (status === 403) return new Error('PROFILE_ACCESS_DENIED');
+  if (status === 404) return new Error('ESS_PROFILE_REQUIRED');
+  if (status >= 500) return new Error('SERVER_UNAVAILABLE');
+  if (normalized.includes('self-update is not enabled')) {
+    return new Error('PROFILE_EDIT_DISABLED');
+  }
+  if (normalized.includes('valid email')) {
+    return new Error('PROFILE_EMAIL_INVALID');
+  }
+  return new Error(message || (operation === 'load' ? 'PROFILE_LOAD_FAILED' : 'PROFILE_UPDATE_FAILED'));
 };
 
 const mapLeaveBalances = (payload: unknown) => {
@@ -706,6 +814,26 @@ export const essApiService = {
     assertApiConfigured();
     const payload = unwrap(await apiClient.get('/api/ess/profile'));
     return mapEmployee(payload, fallback);
+  },
+  async getSelfProfile(): Promise<EmployeeSelfProfile> {
+    assertApiConfigured();
+    try {
+      const payload = unwrap(await apiClient.get('/api/ess/profile'));
+      return mapEmployeeSelfProfile(payload);
+    } catch (error) {
+      throw normalizeProfileApiError(error, 'load');
+    }
+  },
+  async saveProfile(
+    request: SaveEmployeeSelfProfileRequest,
+  ): Promise<EmployeeSelfProfile> {
+    assertApiConfigured();
+    try {
+      const payload = unwrap(await apiClient.post('/api/ess/profile', request));
+      return mapEmployeeSelfProfile(payload);
+    } catch (error) {
+      throw normalizeProfileApiError(error, 'save');
+    }
   },
   async registerFaceEnrollment(input: {
     clientCode: string;

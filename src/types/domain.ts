@@ -65,6 +65,57 @@ export type Employee = {
   avatarUrl?: string;
 };
 
+export type EmployeeSelfProfile = {
+  clientId: number;
+  employeeCode: string;
+  firstName: string;
+  lastName: string;
+  workEmail: string;
+  dateOfBirth: string;
+  mobile: string;
+  panNumber: string;
+  aadhaarNumber: string;
+  address: string;
+  correspondenceAddress: string;
+  permanentAddress: string;
+  city: string;
+  district: string;
+  state: string;
+  bankName: string;
+  bankAccountNo: string;
+  ifscCode: string;
+  paymentMode: string;
+  department: string;
+  designation: string;
+  dateOfJoining: string;
+  workLocation: string;
+  attendanceOffice: string;
+  reportingManager: string;
+  canEdit: boolean;
+  travelExpenseEnabled: boolean;
+};
+
+export type SaveEmployeeSelfProfileRequest = Pick<
+  EmployeeSelfProfile,
+  | 'firstName'
+  | 'lastName'
+  | 'workEmail'
+  | 'dateOfBirth'
+  | 'mobile'
+  | 'panNumber'
+  | 'aadhaarNumber'
+  | 'address'
+  | 'correspondenceAddress'
+  | 'permanentAddress'
+  | 'city'
+  | 'district'
+  | 'state'
+  | 'bankName'
+  | 'bankAccountNo'
+  | 'ifscCode'
+  | 'paymentMode'
+>;
+
 export type AttachmentFieldConfiguration = {
   id: number;
   clientId: number;

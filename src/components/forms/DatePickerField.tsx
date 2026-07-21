@@ -35,6 +35,7 @@ type Props = {
   disabled?: boolean;
   error?: boolean;
   helperText?: string;
+  allowClear?: boolean;
   accessibilityLabel?: string;
   testID?: string;
 };
@@ -48,6 +49,7 @@ export const DatePickerField = ({
   disabled = false,
   error = false,
   helperText,
+  allowClear = false,
   accessibilityLabel,
   testID,
 }: Props) => {
@@ -76,7 +78,7 @@ export const DatePickerField = ({
         accessibilityLabel={accessibilityLabel ?? label}
         accessibilityRole="button"
         accessibilityState={{ disabled }}
-        accessibilityValue={{ text: format(selectedDate, 'dd MMM yyyy') }}
+        accessibilityValue={{ text: value ? format(selectedDate, 'dd MMM yyyy') : 'No date selected' }}
         disabled={disabled}
         onPress={openPicker}
         testID={testID}>
@@ -92,13 +94,20 @@ export const DatePickerField = ({
             }
             showSoftInputOnFocus={false}
             testID={testID ? `${testID}-input` : undefined}
-            value={format(selectedDate, 'dd MMM yyyy')}
+            value={value ? format(selectedDate, 'dd MMM yyyy') : ''}
           />
         </View>
       </Pressable>
 
-      {helperText ? (
-        <Text style={[styles.helperText, error ? styles.errorText : undefined]}>{helperText}</Text>
+      {helperText || (allowClear && value) ? (
+        <View style={styles.helperRow}>
+          {helperText ? (
+            <Text style={[styles.helperText, error ? styles.errorText : undefined]}>{helperText}</Text>
+          ) : <View />}
+          {allowClear && value ? (
+            <Button compact onPress={() => onChange('')}>Clear</Button>
+          ) : null}
+        </View>
       ) : null}
 
       {pickerVisible ? (
@@ -131,6 +140,11 @@ const createStyles = (colors: AppColors) =>
       ...typography.caption,
       color: colors.textMuted,
       paddingHorizontal: spacing.md,
+    },
+    helperRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
     },
     errorText: {
       color: colors.warning,

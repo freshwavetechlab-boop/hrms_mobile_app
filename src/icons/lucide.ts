@@ -15,6 +15,7 @@ export { default as ChevronsLeft } from '@app-lucide/chevrons-left';
 export { default as ChevronsRight } from '@app-lucide/chevrons-right';
 export { default as ClipboardList } from '@app-lucide/clipboard-list';
 export { default as Clock3 } from '@app-lucide/clock-3';
+export { default as CreditCard } from '@app-lucide/credit-card';
 export { default as Eye } from '@app-lucide/eye';
 export { default as EyeOff } from '@app-lucide/eye-off';
 export { default as FileText } from '@app-lucide/file-text';

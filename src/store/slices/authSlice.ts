@@ -1,7 +1,13 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { authRepository } from '../../repositories/authRepository';
+import { employeeFromSelfProfile, essApiService } from '../../services/essApiService';
 import { faceEnrollmentService } from '../../services/faceEnrollmentService';
-import { FaceRegistrationCapture, Session } from '../../types/domain';
+import { sessionStorage } from '../../services/sessionStorage';
+import {
+  FaceRegistrationCapture,
+  SaveEmployeeSelfProfileRequest,
+  Session,
+} from '../../types/domain';
 
 type FaceEnrollmentStatus = 'unknown' | 'checking' | 'required' | 'registered';
 
@@ -42,6 +48,21 @@ export const changePassword = createAsyncThunk(
   'auth/changePassword',
   async ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) =>
     authRepository.changePassword(currentPassword, newPassword),
+);
+
+
+export const saveSelfProfile = createAsyncThunk(
+  'auth/saveSelfProfile',
+  async (request: SaveEmployeeSelfProfileRequest) => {
+    const session = sessionStorage.getSession();
+    if (!session) {
+      throw new Error('SESSION_EXPIRED');
+    }
+    const profile = await essApiService.saveProfile(request);
+    const employee = employeeFromSelfProfile(profile, session.employee);
+    await sessionStorage.saveSession({ ...session, employee });
+    return { employee, profile };
+  },
 );
 
 export const checkFaceEnrollment = createAsyncThunk(
@@ -113,6 +134,15 @@ const authSlice = createSlice({
         state.error = undefined;
       })
       .addCase(changePassword.rejected, (state, action) => {
+        state.error = action.error.message;
+      })
+      .addCase(saveSelfProfile.fulfilled, (state, action) => {
+        if (state.session) {
+          state.session.employee = action.payload.employee;
+        }
+        state.error = undefined;
+      })
+      .addCase(saveSelfProfile.rejected, (state, action) => {
         state.error = action.error.message;
       })
       .addCase(checkFaceEnrollment.pending, state => {
